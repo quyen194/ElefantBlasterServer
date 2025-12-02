@@ -1,0 +1,37 @@
+{
+    "all": {
+        "enabled": true,
+        "file_name": "all.json.log",
+        "console_level": "info",
+        "file_level": "debug",
+        "max_file_size_mb": 100,
+        "max_files": 10
+    },
+    "app": {
+        "enabled": true,
+        "log_name": "Application",
+        "file_name": "app.json.log",
+        "console_level": "info",
+        "file_level": "debug",
+        "max_file_size_mb": 10,
+        "max_files": 10
+    },
+    "game": {
+        "enabled": true,
+        "log_name": "Game",
+        "file_name": "game.json.log",
+        "console_level": "info",
+        "file_level": "debug",
+        "max_file_size_mb": 10,
+        "max_files": 10
+    },
+    "network": {
+        "enabled": true,
+        "log_name": "Network",
+        "file_name": "network.json.log",
+        "console_level": "info",
+        "file_level": "debug",
+        "max_file_size_mb": 10,
+        "max_files": 10
+    }
+}

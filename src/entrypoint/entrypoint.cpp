@@ -13,7 +13,10 @@
 
 
 // -----------------------------------------------------------------------------
+#include <aries_base/logger/logger_manager.hpp>
 
+#include "common/settings_manager.hpp"
+#include "control/process_control.hpp"
 // -----------------------------------------------------------------------------
 
 // -----------------------------------------------------------------------------
@@ -23,8 +26,21 @@
 // -----------------------------------------------------------------------------
 
 // -----------------------------------------------------------------------------
+using namespace aries_base::common;
+using namespace common;
+// -----------------------------------------------------------------------------
+
+// -----------------------------------------------------------------------------
 
 int main(int argc, char *argv[]) {
+  // Initialize global logger manager
+  LoggerManager::CreateInstance();
+
+  // Initialize settings manager
+  SettingsManager::CreateInstance();
+
+  ProcessControl process_control;
+
   return 0;
 }
 // -----------------------------------------------------------------------------

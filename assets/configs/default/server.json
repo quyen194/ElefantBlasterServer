@@ -1,0 +1,31 @@
+{
+    "server": {
+        "name": "ElefantBlasterServer",
+        "version": "1.0.0"
+    },
+    "lobby": {
+        "max_rooms": 100,
+        "room_idle_timeout_s": 600
+    },
+    "match": {
+        "max_viewers": 10,
+        "max_players": 2,
+        "tick_rate_ms": 500,
+        "max_match_duration_s": 300
+    },
+    "game_network": {
+        "host": "0.0.0.0",
+        "port": 9002,
+        "certificate_chain_file": "tls_certs/game_server.crt",
+        "private_key_file": "tls_certs/game_server.key",
+        "max_connections": 100
+    },
+    "admin_network": {
+        "enabled": true,
+        "host": "0.0.0.0",
+        "port": 9003,
+        "certificate_chain_file": "tls_certs/admin_server.crt",
+        "private_key_file": "tls_certs/admin_server.key",
+        "max_connections": 10
+    }
+}

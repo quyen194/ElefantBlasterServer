@@ -1,0 +1,14 @@
+{
+    "setting_auto_save": {
+        "enabled": true,
+        "interval": 30000
+    },
+    "ipc": {
+        "buffer_size": 1024,
+        "block_count": 1024
+    },
+    "thread_pool": {
+        "idle_threads": 4,
+        "max_threads": 16
+    }
+}
