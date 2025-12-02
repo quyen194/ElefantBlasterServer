@@ -5,44 +5,42 @@
   author:    quyen19492
   email:     quyen19492@gmail.com
 
-  created:   2025/11/15 05:13
-  filename:  AriesGames\BomberManServer\entrypoint\entrypoint.cpp
+  created:   2025/11/15 19:28
+  filename:  AriesGames\BomberManServer\src\network\connection_info.hpp
 
   purpose:
 *********************************************************************/
 
 
 // -----------------------------------------------------------------------------
-#include <aries_base/logger/logger_manager.hpp>
+#ifndef ARIES_GAMES_BOMBERMANSERVER_SRC_NETWORK_CONNECTION_INFO_HPP
+#define ARIES_GAMES_BOMBERMANSERVER_SRC_NETWORK_CONNECTION_INFO_HPP
+// -----------------------------------------------------------------------------
 
-#include "common/settings_manager.hpp"
-#include "control/process_control.hpp"
+
+// -----------------------------------------------------------------------------
+#include <cstdint>
+#include <string>
+
+#include <websocketpp/config/asio.hpp>
+#include <websocketpp/connection.hpp>
+// -----------------------------------------------------------------------------
+
+
+// -----------------------------------------------------------------------------
+typedef websocketpp::connection<websocketpp::config::asio_tls> connection;
 // -----------------------------------------------------------------------------
 
 // -----------------------------------------------------------------------------
-#if defined(_WIN32)
-#pragma comment(linker, "/SUBSYSTEM:WINDOWS /ENTRY:mainCRTStartup")
-#endif  // _WIN32
+
+struct ConnectionInfo {
+  int index;
+  connection* connection_ptr;
+  std::string player_name;
+  std::string player_id;
+};
 // -----------------------------------------------------------------------------
 
 // -----------------------------------------------------------------------------
-using namespace aries_base::common;
-using namespace common;
-// -----------------------------------------------------------------------------
-
-// -----------------------------------------------------------------------------
-
-int main(int argc, char *argv[]) {
-  // Initialize global logger manager
-  LoggerManager::CreateInstance();
-
-  // Initialize settings manager
-  SettingsManager::CreateInstance();
-
-  ProcessControl process_control;
-  process_control.Create();
-  process_control.RunWorker();
-
-  return 0;
-}
+#endif  // ARIES_GAMES_BOMBERMANSERVER_SRC_NETWORK_CONNECTION_INFO_HPP
 // -----------------------------------------------------------------------------
