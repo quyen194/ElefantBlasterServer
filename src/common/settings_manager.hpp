@@ -37,10 +37,6 @@
 
 
 // -----------------------------------------------------------------------------
-namespace common {
-// -----------------------------------------------------------------------------
-
-// -----------------------------------------------------------------------------
 
 class SettingsManager {
  private:
@@ -50,6 +46,7 @@ class SettingsManager {
  public:
   static SettingsManager* Instance();
   static void CreateInstance();
+  static void DestroyInstance();
 
   bool SetCurrentConfig(const std::string& config_name);
 
@@ -209,6 +206,7 @@ class SettingsManager {
   static const std::string kSettingApp;
   static const std::string kSettingLogging;
   static const std::string kSettingServer;
+  static const std::string kSettingDatabase;
 
  private:
   // settings per file
@@ -249,10 +247,6 @@ class SettingsManager {
  private:
   DISALLOW_COPY_AND_ASSIGN(SettingsManager);
 };
-// -----------------------------------------------------------------------------
-
-// -----------------------------------------------------------------------------
-}  // namespace common
 // -----------------------------------------------------------------------------
 
 // -----------------------------------------------------------------------------

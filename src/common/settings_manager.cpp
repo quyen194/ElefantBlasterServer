@@ -22,10 +22,6 @@
 
 
 // -----------------------------------------------------------------------------
-namespace common {
-// -----------------------------------------------------------------------------
-
-// -----------------------------------------------------------------------------
 using namespace aries_base::common;
 // -----------------------------------------------------------------------------
 
@@ -34,6 +30,7 @@ SettingsManager* SettingsManager::instance_ = nullptr;
 const std::string SettingsManager::kSettingApp = "app.json";
 const std::string SettingsManager::kSettingLogging = "logging.json";
 const std::string SettingsManager::kSettingServer = "server.json";
+const std::string SettingsManager::kSettingDatabase = "database.json";
 // -----------------------------------------------------------------------------
 
 // -----------------------------------------------------------------------------
@@ -43,8 +40,8 @@ SettingsManager::SettingsManager() {
   logger_ = LoggerManager::Instance()->CreateLoggerWithSharedFile(
       "SettingsManager", "startup.json.log");
 
-  Load("logging.json");
-  InitializeLogging("logging.json");
+  Load(kSettingLogging);
+  InitializeLogging(kSettingLogging);
 
   // Replace temporary logger with real one
   logger_->flush();
@@ -53,6 +50,7 @@ SettingsManager::SettingsManager() {
 
   Load(kSettingApp);
   Load(kSettingServer);
+  Load(kSettingDatabase);
 
   bool auto_save_enabled = GetNestedFrom<bool>(kSettingApp, "/setting_auto_save/enabled", true);
   if (auto_save_enabled) {
@@ -85,6 +83,14 @@ SettingsManager* SettingsManager::Instance() {
 void SettingsManager::CreateInstance() {
   if (!instance_) {
     instance_ = new SettingsManager();
+  }
+}
+// -----------------------------------------------------------------------------
+
+void SettingsManager::DestroyInstance() {
+  if (instance_) {
+    delete instance_;
+    instance_ = nullptr;
   }
 }
 // -----------------------------------------------------------------------------
@@ -360,8 +366,4 @@ std::shared_ptr<spdlog::logger> SettingsManager::GetLogger(
   logger_cache_[instance_name] = new_logger;
   return new_logger;
 }
-// -----------------------------------------------------------------------------
-
-// -----------------------------------------------------------------------------
-}  // namespace common
 // -----------------------------------------------------------------------------

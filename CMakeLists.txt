@@ -64,18 +64,18 @@ if(APPLE)
     target_sources("${EXECUTABLE_NAME}" PRIVATE "resources/logo.png")
 endif()
 
+# Set the runtime library to be dynamic on MSVC builds
+if (MSVC)
+    set(CMAKE_MSVC_RUNTIME_LIBRARY
+        "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
+endif()
+
+# Build all libraries as static
+set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
+
 include(FetchContent)
 
 # aries_base (Common base library)
-set(ARIES_BASE_BUILD_EXAMPLES OFF)
-set(ARIES_BASE_BUILD_TESTS OFF)
-set(ARIES_DB_ENABLE_MSSQL OFF)
-set(ARIES_DB_ENABLE_MYSQL OFF)
-FetchContent_Declare(
-    aries_base
-    SOURCE_DIR ${CMAKE_SOURCE_DIR}/libs/aries_base
-)
-FetchContent_MakeAvailable(aries_base)
 target_link_libraries(${EXECUTABLE_NAME} PRIVATE aries_base)
 
 # glm (C++ mathematics library for graphics software)
@@ -120,7 +120,7 @@ target_link_libraries(${EXECUTABLE_NAME} PRIVATE protobuf::libprotobuf)
 target_link_libraries(${EXECUTABLE_NAME} PRIVATE websocketpp::websocketpp)
 
 # ===================================================================
-# ASSET & RESOURCE HANDLING – FULLY AUTOMATIC FOR YOUR BOMBERMAN PROJECT
+# ASSET & RESOURCE HANDLING – FULLY AUTOMATIC FOR YOUR PROJECT
 # Supports: Windows | Linux | macOS | iOS | Android | Web (Emscripten)
 # Automatically copies:
 #   - assets/      → all game data (audio, graphics, levels, etc.)

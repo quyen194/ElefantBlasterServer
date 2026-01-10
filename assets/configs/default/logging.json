@@ -16,6 +16,15 @@
         "max_file_size_mb": 10,
         "max_files": 10
     },
+    "db": {
+        "enabled": true,
+        "log_name": "Database",
+        "file_name": "db.json.log",
+        "console_level": "info",
+        "file_level": "debug",
+        "max_file_size_mb": 10,
+        "max_files": 10
+    },
     "game": {
         "enabled": true,
         "log_name": "Game",
@@ -25,10 +34,19 @@
         "max_file_size_mb": 10,
         "max_files": 10
     },
-    "network": {
+    "admin_server": {
         "enabled": true,
-        "log_name": "Network",
-        "file_name": "network.json.log",
+        "log_name": "AdminServer",
+        "file_name": "AdminServer.json.log",
+        "console_level": "info",
+        "file_level": "debug",
+        "max_file_size_mb": 10,
+        "max_files": 10
+    },
+    "game_server": {
+        "enabled": true,
+        "log_name": "GameServer",
+        "file_name": "GameServer.json.log",
         "console_level": "info",
         "file_level": "debug",
         "max_file_size_mb": 10,

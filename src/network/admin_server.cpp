@@ -17,10 +17,14 @@
 #include <fstream>
 #include <sstream>
 
-#include "network/net_server.hpp"
+#include <aries_base/process/thread_pool/thread_pool.hpp>
+
+#include "network/admin_server.hpp"
 // -----------------------------------------------------------------------------
 
 
+// -----------------------------------------------------------------------------
+using namespace aries_base::process;
 // -----------------------------------------------------------------------------
 using websocketpp::lib::bind;
 using websocketpp::lib::placeholders::_1;
@@ -31,63 +35,126 @@ typedef asio::ssl::context context;
 
 // -----------------------------------------------------------------------------
 
-NetServer::NetServer() {
-  settings_ = SettingsManager::Instance();
-  logger_ = settings_->GetLogger("app", "NetServer", true);
-
-  settings_->SetCurrentConfig(SettingsManager::kSettingServer);
-  port_ = settings_->GetNested<int>("/network/port", 9002);
+AdminServer::AdminServer(DBManager *db_manager)
+    : settings_(SettingsManager::Instance()), db_manager_(db_manager) {
+  logger_ = settings_->GetLogger("admin_server", "AdminServer", true);
 
   // Initialize Asio
   server_.init_asio();
 
   // Register our message handler
-  server_.set_tls_init_handler(bind(&NetServer::OnTlsInit, this, _1));
-  server_.set_open_handler(bind(&NetServer::OnConnected, this, _1));
-  server_.set_close_handler(bind(&NetServer::OnDisconnected, this, _1));
-  server_.set_fail_handler(bind(&NetServer::OnError, this, _1));
-  server_.set_message_handler(bind(&NetServer::OnDataRecv, this, _1, _2));
+  server_.set_tls_init_handler(bind(&AdminServer::OnTlsInit, this, _1));
+  server_.set_open_handler(bind(&AdminServer::OnConnected, this, _1));
+  server_.set_close_handler(bind(&AdminServer::OnDisconnected, this, _1));
+  server_.set_fail_handler(bind(&AdminServer::OnError, this, _1));
+  server_.set_message_handler(bind(&AdminServer::OnDataRecv, this, _1, _2));
 }
 // -----------------------------------------------------------------------------
 
-NetServer::~NetServer() {}
+AdminServer::~AdminServer() {}
 // -----------------------------------------------------------------------------
 
-bool NetServer::Start() {
-  if (!LoadTlsData()) {
-      logger_->error("NetServer: Failed to load TLS data, cannot start server");
-      return false;
-  }
+bool AdminServer::LoadConfig() {
+  std::string path;
 
-  // Listen on the specified port
-  server_.listen(port_);
+  settings_->SetCurrentConfig(SettingsManager::kSettingServer);
 
-  // Start the server accept loop
-  server_.start_accept();
+  host_ = settings_->GetNested<std::string>("/admin_network/host");
+  port_ = settings_->GetNested<int>("/admin_network/port", 9003);
 
-  // Start the ASIO io_service run loop
-  logger_->info("NetServer: Starting server on port {}", port_);
-  try {
-      server_.run();
-  } catch (const std::exception& e) {
-      logger_->error("NetServer: Exception in server run loop: {}", e.what());
-      return false;
-  }
+  cert_file_password_ = settings_->GetNested<std::string>("/admin_network/certificate_password");
+  cert_file_path_ = settings_->GetNested<std::string>("/admin_network/certificate_chain_file");
+  key_file_path_ = settings_->GetNested<std::string>("/admin_network/private_key_file");
+  dh_params_file_path_ = settings_->GetNested<std::string>("/admin_network/dh_params_file");
 
   return true;
 }
 // -----------------------------------------------------------------------------
 
-void NetServer::Stop() {
-  logger_->info("NetServer: Stopping server...");
-  server_.stop_listening();
-  server_.stop();
+bool AdminServer::Start() {
+  logger_->info("AdminServer: Starting server...");
+
+  if (!LoadConfig()) {
+      logger_->error("AdminServer: Failed to load configs, cannot start server");
+      return false;
+  }
+
+  if (!LoadTlsData()) {
+      logger_->error("AdminServer: Failed to load TLS data, cannot start server");
+      return false;
+  }
+
+  // Set perpetual mode to keep the server running
+  server_.start_perpetual();
+
+  ThreadPool::Instance()->PostTask(bind(&AdminServer::Worker, this),
+                                   &worker_end_event_);
+
+  logger_->info("AdminServer: Server started successfully");
+
+  return true;
 }
 // -----------------------------------------------------------------------------
 
-context_ptr NetServer::OnTlsInit(connection_hdl hdl) {
-  namespace asio = websocketpp::lib::asio;
+void AdminServer::Stop() {
+  logger_->info("AdminServer: Stopping server...");
+  // Unset perpetual mode so server stop when no connection actived
+  server_.stop_perpetual();
+  Deactive();
+  DisconnectAllClients("Server shutting down");
+  worker_end_event_.Wait();
+  logger_->info("AdminServer: Server stopped.");
+}
+// -----------------------------------------------------------------------------
 
+bool AdminServer::Active() {
+  logger_->info("AdminServer: Activating server...");
+
+  // Listen on the specified host and port
+  server_.listen(host_, std::to_string(port_));
+
+  // Start the server accept loop
+  server_.start_accept();
+
+  logger_->info("AdminServer: Server listening on {}:{}", host_, port_);
+
+  return true;
+}
+// -----------------------------------------------------------------------------
+
+void AdminServer::Deactive() {
+  logger_->info("AdminServer: Deactivating server...");
+  server_.stop_listening();
+  logger_->info("AdminServer: Server deactivated.");
+}
+// -----------------------------------------------------------------------------
+
+void AdminServer::DisconnectAllClients(const std::string &reason) {
+  logger_->info("AdminServer: Disconnecting all clients...");
+  std::unique_lock<std::mutex> lock(connections_mutex_);
+  for (auto& hdl : connections_) {
+    websocketpp::lib::error_code ec;
+    server_.close(hdl, websocketpp::close::status::going_away, reason, ec);
+    if (ec) {
+      logger_->error("AdminServer: Close connection failed: {}", ec.message());
+    }
+  }
+  logger_->info("AdminServer: All clients disconnected.");
+}
+// -----------------------------------------------------------------------------
+
+void AdminServer::Worker() {
+  // Start the ASIO io_service run loop
+  logger_->info("AdminServer: Server run loop started");
+  try {
+    server_.run();
+  } catch (const std::exception& e) {
+    logger_->error("AdminServer: Exception in server run loop: {}", e.what());
+  }
+}
+// -----------------------------------------------------------------------------
+
+context_ptr AdminServer::OnTlsInit(connection_hdl hdl) {
   context_ptr ctx = websocketpp::lib::make_shared<context>(context::sslv23);
   ctx->set_options(context::default_workarounds |
                    context::no_sslv2 |
@@ -107,18 +174,18 @@ context_ptr NetServer::OnTlsInit(connection_hdl hdl) {
 
   // Apply cipher list
   if (SSL_CTX_set_cipher_list(ctx->native_handle() , ciphers_.c_str()) != 1) {
-      logger_->error("NetServer: Error setting cipher list");
+      logger_->error("AdminServer: Error setting cipher list");
   }
 
   return ctx;
 }
 // -----------------------------------------------------------------------------
 
-bool NetServer::LoadTlsData() {
-  cert_file_data_ = ReadFileToString("server.crt");
-  key_file_data_ = ReadFileToString("server.key");
-  dh_params_file_data_ = ReadFileToString("dh2048.pem");
-  cert_file_password_ = "";
+bool AdminServer::LoadTlsData() {
+  cert_file_data_ = ReadFileToString(cert_file_path_);
+  key_file_data_ = ReadFileToString(key_file_path_);
+  dh_params_file_data_ = ReadFileToString(dh_params_file_path_);
+
   // Recommended cipher suite list for wide compatibility (2025)
   // Based on Mozilla Intermediate v5.7+
   // Supports: TLS 1.2 & TLS 1.3, modern browsers, Android 7+, iOS 11+, Windows 10+
@@ -161,7 +228,7 @@ bool NetServer::LoadTlsData() {
 }
 // -----------------------------------------------------------------------------
 
-std::string NetServer::ReadFileToString(const std::string& file_path) {
+std::string AdminServer::ReadFileToString(const std::string& file_path) {
   std::ifstream file(file_path, std::ios::in);
   if (!file.is_open()) {
       return "";
@@ -173,22 +240,41 @@ std::string NetServer::ReadFileToString(const std::string& file_path) {
 }
 // -----------------------------------------------------------------------------
 
-void NetServer::OnConnected(connection_hdl hdl) {
-  auto connection = server_.get_con_from_hdl(hdl);
+void AdminServer::OnConnected(connection_hdl hdl) {
+  // add connection to list
+  {
+    std::unique_lock<std::mutex> lock(connections_mutex_);
+    connections_.insert(hdl);
+  }
+
+  auto conn = server_.get_con_from_hdl(hdl);
+
+  logger_->info("AdminServer: Client connected from {}:{}",
+                conn->get_remote_endpoint(),
+                conn->get_port());
 }
 // -----------------------------------------------------------------------------
 
-void NetServer::OnDisconnected(connection_hdl hdl) {
+void AdminServer::OnDisconnected(connection_hdl hdl) {
+  auto conn = server_.get_con_from_hdl(hdl);
+  logger_->info("AdminServer: Client disconnected {}:{}",
+                conn->get_remote_endpoint(),
+                conn->get_port());
+
+  // remove connection from list
+  {
+    std::unique_lock<std::mutex> lock(connections_mutex_);
+    connections_.erase(hdl);
+  }
+}
+// -----------------------------------------------------------------------------
+
+void AdminServer::OnError(connection_hdl hdl) {
 
 }
 // -----------------------------------------------------------------------------
 
-void NetServer::OnError(connection_hdl hdl) {
-
-}
-// -----------------------------------------------------------------------------
-
-void NetServer::OnDataRecv(connection_hdl hdl, message_ptr msg) {
+void AdminServer::OnDataRecv(connection_hdl hdl, message_ptr msg) {
 
 }
 // -----------------------------------------------------------------------------

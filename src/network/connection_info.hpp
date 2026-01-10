@@ -1,20 +1,20 @@
 /********************************************************************
   Copyright 2014, Cong Quyen Knight. All rights reserved
 
-  project:   Aries Games Project
+  project:   Aries Games: Elefant Blaster
   author:    quyen19492
   email:     quyen19492@gmail.com
 
   created:   2025/11/15 19:28
-  filename:  AriesGames\BomberManServer\src\network\connection_info.hpp
+  filename:  ElefantBlaster/ElefantBlasterServer/network/connection_info.hpp
 
   purpose:
 *********************************************************************/
 
 
 // -----------------------------------------------------------------------------
-#ifndef ARIES_GAMES_BOMBERMANSERVER_SRC_NETWORK_CONNECTION_INFO_HPP
-#define ARIES_GAMES_BOMBERMANSERVER_SRC_NETWORK_CONNECTION_INFO_HPP
+#ifndef ELEFANT_BLASTER_SERVER_NETWORK_CONNECTION_INFO_HPP
+#define ELEFANT_BLASTER_SERVER_NETWORK_CONNECTION_INFO_HPP
 // -----------------------------------------------------------------------------
 
 
@@ -42,5 +42,5 @@ struct ConnectionInfo {
 // -----------------------------------------------------------------------------
 
 // -----------------------------------------------------------------------------
-#endif  // ARIES_GAMES_BOMBERMANSERVER_SRC_NETWORK_CONNECTION_INFO_HPP
+#endif  // ELEFANT_BLASTER_SERVER_NETWORK_CONNECTION_INFO_HPP
 // -----------------------------------------------------------------------------

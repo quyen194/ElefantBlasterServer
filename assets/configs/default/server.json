@@ -16,16 +16,19 @@
     "game_network": {
         "host": "0.0.0.0",
         "port": 9002,
-        "certificate_chain_file": "tls_certs/game_server.crt",
-        "private_key_file": "tls_certs/game_server.key",
+        "certificate_password": "",
+        "certificate_chain_file": "assets/tls_certs/game.elefant-blaster.com/server.crt",
+        "private_key_file": "assets/tls_certs/game.elefant-blaster.com/server.key",
+        "dh_params_file": "assets/tls_certs/game.elefant-blaster.com/dh2048.pem",
         "max_connections": 100
     },
     "admin_network": {
-        "enabled": true,
         "host": "0.0.0.0",
         "port": 9003,
-        "certificate_chain_file": "tls_certs/admin_server.crt",
-        "private_key_file": "tls_certs/admin_server.key",
+        "certificate_password": "",
+        "certificate_chain_file": "assets/tls_certs/admin.elefant-blaster.com/server.crt",
+        "private_key_file": "assets/tls_certs/admin.elefant-blaster.com/server.key",
+        "dh_params_file": "assets/tls_certs/admin.elefant-blaster.com/dh2048.pem",
         "max_connections": 10
     }
 }

@@ -6,19 +6,21 @@
   email:     quyen19492@gmail.com
 
   created:   2025/11/14 21:38
-  filename:  ElefantBlaster/ElefantBlasterServer/network/net_server.hpp
+  filename:  ElefantBlaster/ElefantBlasterServer/network/admin_server.hpp
 
-  purpose:
+  purpose:   Header file for the admin server
 *********************************************************************/
 
 
 // -----------------------------------------------------------------------------
-#ifndef ARIES_GAMES_BOMBERMANSERVER_SRC_NETWORK_NET_SERVER_H
-#define ARIES_GAMES_BOMBERMANSERVER_SRC_NETWORK_NET_SERVER_H
+#ifndef ELEFANT_BLASTER_SERVER_NETWORK_ADMIN_SERVER_HPP
+#define ELEFANT_BLASTER_SERVER_NETWORK_ADMIN_SERVER_HPP
 // -----------------------------------------------------------------------------
 
 // -----------------------------------------------------------------------------
 #include <cstdint>
+#include <mutex>
+#include <set>
 #include <string>
 
 #include <spdlog/spdlog.h>
@@ -27,16 +29,16 @@
 #include <websocketpp/server.hpp>
 
 #include <aries_base/definitions/macro.hpp>
+#include <aries_base/process/event/event.hpp>
 
 #include "common/settings_manager.hpp"
 #include "network/connection_info.hpp"
+#include "storage/db_manager.hpp"
 // -----------------------------------------------------------------------------
 
 
 // -----------------------------------------------------------------------------
-using namespace common;
-// -----------------------------------------------------------------------------
-
+using namespace aries_base::process;
 // -----------------------------------------------------------------------------
 typedef websocketpp::config::asio::message_type::ptr message_ptr;
 typedef websocketpp::connection_hdl connection_hdl;
@@ -46,13 +48,19 @@ typedef websocketpp::server<websocketpp::config::asio_tls> websocket_server;
 
 // -----------------------------------------------------------------------------
 
-class NetServer {
+class AdminServer {
  public:
-  NetServer();
-  virtual ~NetServer();
+  AdminServer(DBManager *db_manager);
+  virtual ~AdminServer();
+
+  bool LoadConfig();
 
   bool Start();
   void Stop();
+  bool Active();
+  void Deactive();
+
+  void DisconnectAllClients(const std::string &reason);
 
  public:
   context_ptr OnTlsInit(connection_hdl hdl);
@@ -65,26 +73,37 @@ class NetServer {
   std::string ReadFileToString(const std::string &file_path);
 
  private:
+  void Worker();
+
+ private:
   websocket_server server_;
+  std::string host_;  // IP to bind
   int port_;
 
   std::string cert_file_password_;
+  std::string cert_file_path_;
   std::string cert_file_data_;
+  std::string key_file_path_;
   std::string key_file_data_;
+  std::string dh_params_file_path_;
   std::string dh_params_file_data_;
   std::string ciphers_;
 
- private:
-  SettingsManager* settings_;
+  std::set<connection_hdl, std::owner_less<connection_hdl>> connections_;
+  std::mutex connections_mutex_;
+
+  Event worker_end_event_;
 
  private:
+  SettingsManager* settings_;
+  DBManager* db_manager_;
   std::shared_ptr<spdlog::logger> logger_;
 
  private:
-  DISALLOW_COPY_AND_ASSIGN(NetServer);
+  DISALLOW_COPY_AND_ASSIGN(AdminServer);
 };
 // -----------------------------------------------------------------------------
 
 // -----------------------------------------------------------------------------
-#endif  // ARIES_GAMES_BOMBERMANSERVER_SRC_NETWORK_NET_SERVER_H
+#endif  // ELEFANT_BLASTER_SERVER_NETWORK_ADMIN_SERVER_HPP
 // -----------------------------------------------------------------------------

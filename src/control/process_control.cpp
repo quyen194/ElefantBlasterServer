@@ -26,13 +26,12 @@
 // -----------------------------------------------------------------------------
 using namespace aries_base::common;
 using namespace aries_base::process;
-using namespace common;
 // -----------------------------------------------------------------------------
 
 // -----------------------------------------------------------------------------
 
 ProcessControl::ProcessControl()
-    : settings_(SettingsManager::Instance()) {
+    : settings_(SettingsManager::Instance()), admin_server_(&db_manager_) {
   logger_ = settings_->GetLogger("app", "ProcessControl", true);
 }
 // -----------------------------------------------------------------------------
@@ -59,5 +58,13 @@ void ProcessControl::Create() {
   IpcServer::Create(ipc_buffer_size, ipc_block_count);
 
   logger_->info("IPC server initialized successfully");
+
+  db_manager_.LoadConfig();
+  db_manager_.CreateDatabase();
+
+  admin_server_.Start();
+  admin_server_.Active();
+
+  logger_->info("ProcessControl: Elefant Blaster Server App started successfully");
 }
 // -----------------------------------------------------------------------------
