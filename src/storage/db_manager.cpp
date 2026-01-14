@@ -8,11 +8,12 @@
   created:   2025/12/27 14:23
   filename:  ElefantBlasterServer/src/storage/db_manager.cpp
 
-  purpose:
+  purpose:   Implementation file for the database manager
 *********************************************************************/
 
 
 // -----------------------------------------------------------------------------
+#include <filesystem>
 #include <string>
 
 #include <aries_base/encryption/hash/hash_factory.hpp>
@@ -69,7 +70,29 @@ bool DBManager::LoadConfig() {
 }
 // -----------------------------------------------------------------------------
 
+bool DBManager::ConnectAsRoot() {
+  return Connect(initial_connection_string_);
+}
+// -----------------------------------------------------------------------------
+
+bool DBManager::ConnectAsUser() {
+  return Connect(running_connection_string_);
+}
+// -----------------------------------------------------------------------------
+
 bool DBManager::Connect(const std::string& connection_string) {
+  if (IsConnected()) {
+    Disconnect();
+  }
+
+  if (db_type_ == DBType::SQLite) {
+    std::filesystem::path db_path = connection_string;
+    std::filesystem::path db_dir = db_path.parent_path();
+    if (!db_dir.empty() && !std::filesystem::exists(db_dir)) {
+      std::filesystem::create_directory(db_dir);
+    }
+  }
+
   db_ = DatabaseFactory::Create(db_type_);
   if (!db_) {
     logger_->error("Connect: Failed to create database instance");
@@ -102,7 +125,7 @@ bool DBManager::IsConnected() const {
 bool DBManager::CreateDatabase() {
   std::string query;
 
-  Connect(initial_connection_string_);
+  ConnectAsRoot();
 
   // defer disconnect
   ScopeCleanup disconnect_scope([this]() {
@@ -166,7 +189,7 @@ bool DBManager::CreateDatabase() {
   query = R"(
       CREATE TABLE IF NOT EXISTS users (
           id            ID_TYPE_PLACEHOLDER,
-          type          INTEGER NOT NULL DEFAULT 0,        -- 0=player, 1=admin
+          type          INTEGER NOT NULL DEFAULT 2,        -- 1=admin, 2=player
           username      TEXT UNIQUE NOT NULL,
           password_hash TEXT NOT NULL,
           display_name  TEXT NOT NULL,
@@ -182,9 +205,6 @@ bool DBManager::CreateDatabase() {
     logger_->error("CreateDatabase: Failed to create users table: {}", db_->GetLastError());
     return false;
   }
-
-  // hash admin password
-
 
   // add admin user
   {
@@ -271,6 +291,8 @@ bool DBManager::CreateDatabase() {
 
   logger_->info("CreateDatabase: Database created successfully");
 
+  Disconnect();
+
   return true;
 }
 // -----------------------------------------------------------------------------
@@ -294,6 +316,8 @@ bool DBManager::UpdateDatabase() {
     current_version = 2;
     logger_->info("UpdateDatabase: Updated database to version 2");
   }
+
+  Disconnect();
 
   return true;
 }
@@ -377,9 +401,155 @@ std::string DBManager::StandalizeQueryCreateTable(const std::string& query,
 }
 // -----------------------------------------------------------------------------
 
+std::string DBManager::NormalizeUsername(const std::string& username) {
+  std::string output = username;
+  std::transform(
+      output.begin(), output.end(), output.begin(), [](unsigned char c) {
+        return std::tolower(c);
+      });
+  return output;
+}
+// -----------------------------------------------------------------------------
+
+bool DBManager::VerifyUsername(const std::string& username,
+                               std::string& rules) {
+  rules = R"(
+      Allowed characters: (a-z), (A-Z), (0-9), (.), (_)
+      Length: 8-20 characters
+      Must start with a letter
+      Must end with a letter or number
+      Not contain following words: admin, root, system, support, null, undefined
+  )";
+
+  // 1. Length check
+  if (username.length() < 8 || username.length() > 20) {
+    return false;
+  }
+
+  // 2. Must start with a letter
+  if (!std::isalpha(static_cast<unsigned char>(username.front()))) {
+    return false;
+  }
+
+  // 3. Must end with a letter or number
+  if (!std::isalnum(static_cast<unsigned char>(username.back()))) {
+    return false;
+  }
+
+  // 4. Allowed characters check
+  for (char ch : username) {
+    if (!(std::isalnum(static_cast<unsigned char>(ch)) || ch == '.' ||
+          ch == '_')) {
+      return false;
+    }
+  }
+
+  // 5. Convert username to lowercase for keyword checking
+  std::string lower_username = username;
+  std::transform(lower_username.begin(),
+                 lower_username.end(),
+                 lower_username.begin(),
+                 [](unsigned char c) { return std::tolower(c); });
+
+  // 6. Forbidden keywords
+  static const std::vector<std::string> forbidden_words = {
+      "admin", "root", "system", "support", "null", "undefined"
+  };
+
+  for (const auto& word : forbidden_words) {
+    if (lower_username.find(word) != std::string::npos) {
+      return false;
+    }
+  }
+
+  return true;
+}
+// -----------------------------------------------------------------------------
+
 std::string DBManager::HashPassword(const std::string& password) {
   auto hasher = HashFactory::Create(HashType::SHA256);
   hasher->Update(password.data(), password.size());
   return hasher->Final();
+}
+// -----------------------------------------------------------------------------
+
+std::string DBManager::ConvertTime(time_t utc_time) {
+  std::tm tm = {};
+
+#if defined(_WIN32)
+  gmtime_s(&tm, &utc_time);  // UTC
+#else
+  gmtime_r(&utc_time, &tm);  // UTC
+#endif
+
+  std::ostringstream oss;
+  oss << std::put_time(&tm, "%Y-%m-%d %H:%M:%S");
+  return oss.str();
+}
+// -----------------------------------------------------------------------------
+
+time_t DBManager::ConvertTime(std::string str_time) {
+  std::tm tm = {};
+
+  strptime(str_time.c_str(), "%Y-%m-%d %H:%M:%S", &tm);
+
+#if defined(_WIN32)
+  return _mkgmtime(&tm);  // UTC
+#else
+  return timegm(&tm);  // UTC
+#endif
+}
+// -----------------------------------------------------------------------------
+
+bool DBManager::AuthUser(const std::string& username,
+                         const std::string& password,
+                         User& user) {
+  int i = 0;
+  std::string normalized_username = NormalizeUsername(username);
+  std::string hash_password = HashPassword(password);
+
+  std::string query = R"(
+      SELECT id, type, display_name, api_token, is_banned, ban_reason, banned_until
+      FROM users
+      WHERE username = ?
+        AND password_hash = ?
+  )";
+
+  auto stmt = db_->Prepare(query);
+
+  if (!stmt) {
+    logger_->error("AuthUser: Failed to prepare stmt: {}", db_->GetLastError());
+    return false;
+  }
+
+  i = 1;
+  stmt->BindString(i++, normalized_username);
+  stmt->BindString(i++, hash_password);
+
+  auto result_set = stmt->Query();
+
+  if (!result_set) {
+    logger_->error("AuthUser: Failed to execute stmt: {}",
+                   stmt->GetLastError());
+    return false;
+  }
+
+  if (!result_set->Next()) {
+    logger_->error("AuthUser: No user found matching the provided credentials. Username: {}",
+                   username);
+    return false;
+  }
+
+  i = 0;
+  user.id = result_set->GetInt64(i++);
+  user.type = static_cast<UserType>(result_set->GetInt(i++));
+  user.display_name = result_set->GetString(i++);
+  user.api_token = result_set->GetString(i++);
+  user.is_banned = !!result_set->GetInt(i++);
+  user.ban_reason = result_set->GetString(i++);
+  user.banned_until = ConvertTime(result_set->GetString(i++));
+  user.created_at = 0;
+
+  return true;
 }
 // -----------------------------------------------------------------------------

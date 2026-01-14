@@ -6,15 +6,15 @@
   email:     quyen19492@gmail.com
 
   created:   2025/11/15 19:28
-  filename:  ElefantBlaster/ElefantBlasterServer/network/connection_info.hpp
+  filename:  ElefantBlaster/ElefantBlasterServer/network/admin/admin_client_info.hpp
 
-  purpose:
+  purpose:   Header file for admin client information
 *********************************************************************/
 
 
 // -----------------------------------------------------------------------------
-#ifndef ELEFANT_BLASTER_SERVER_NETWORK_CONNECTION_INFO_HPP
-#define ELEFANT_BLASTER_SERVER_NETWORK_CONNECTION_INFO_HPP
+#ifndef ELEFANT_BLASTER_SERVER_NETWORK_ADMIN_ADMIN_CLIENT_INFO_HPP
+#define ELEFANT_BLASTER_SERVER_NETWORK_ADMIN_ADMIN_CLIENT_INFO_HPP
 // -----------------------------------------------------------------------------
 
 
@@ -22,25 +22,24 @@
 #include <cstdint>
 #include <string>
 
-#include <websocketpp/config/asio.hpp>
-#include <websocketpp/connection.hpp>
+#include "entities/user.hpp"
 // -----------------------------------------------------------------------------
 
 
 // -----------------------------------------------------------------------------
-typedef websocketpp::connection<websocketpp::config::asio_tls> connection;
+typedef websocketpp::connection_hdl connection_hdl;
 // -----------------------------------------------------------------------------
 
 // -----------------------------------------------------------------------------
 
-struct ConnectionInfo {
-  int index;
-  connection* connection_ptr;
-  std::string player_name;
-  std::string player_id;
+struct AdminClientInfo {
+  std::uint64_t index;
+  connection_hdl hdl;
+
+  User user;
 };
 // -----------------------------------------------------------------------------
 
 // -----------------------------------------------------------------------------
-#endif  // ELEFANT_BLASTER_SERVER_NETWORK_CONNECTION_INFO_HPP
+#endif  // ELEFANT_BLASTER_SERVER_NETWORK_ADMIN_ADMIN_CLIENT_INFO_HPP
 // -----------------------------------------------------------------------------

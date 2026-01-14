@@ -8,7 +8,7 @@
   created:   2025/11/14 21:40
   filename:  ElefantBlaster/ElefantBlasterServer/network/net_server.cpp
 
-  purpose:
+  purpose:   Implementation file for the admin server
 *********************************************************************/
 
 
@@ -18,12 +18,16 @@
 #include <sstream>
 
 #include <aries_base/process/thread_pool/thread_pool.hpp>
+#include <aries_base/utils/file_io.hpp>
 
-#include "network/admin_server.hpp"
+#include <network/shared/admin_protocols/server_protocol.pb.h>
+
+#include "network/admin/admin_server.hpp"
 // -----------------------------------------------------------------------------
 
 
 // -----------------------------------------------------------------------------
+using namespace aries_base;
 using namespace aries_base::process;
 // -----------------------------------------------------------------------------
 using websocketpp::lib::bind;
@@ -35,8 +39,10 @@ typedef asio::ssl::context context;
 
 // -----------------------------------------------------------------------------
 
-AdminServer::AdminServer(DBManager *db_manager)
-    : settings_(SettingsManager::Instance()), db_manager_(db_manager) {
+AdminServer::AdminServer(DBManager* db_manager)
+    : next_conn_id_(1),
+      settings_(SettingsManager::Instance()),
+      db_manager_(db_manager) {
   logger_ = settings_->GetLogger("admin_server", "AdminServer", true);
 
   // Initialize Asio
@@ -47,7 +53,7 @@ AdminServer::AdminServer(DBManager *db_manager)
   server_.set_open_handler(bind(&AdminServer::OnConnected, this, _1));
   server_.set_close_handler(bind(&AdminServer::OnDisconnected, this, _1));
   server_.set_fail_handler(bind(&AdminServer::OnError, this, _1));
-  server_.set_message_handler(bind(&AdminServer::OnDataRecv, this, _1, _2));
+  server_.set_message_handler(bind(&AdminServer::OnMessage, this, _1, _2));
 }
 // -----------------------------------------------------------------------------
 
@@ -132,9 +138,9 @@ void AdminServer::Deactive() {
 void AdminServer::DisconnectAllClients(const std::string &reason) {
   logger_->info("AdminServer: Disconnecting all clients...");
   std::unique_lock<std::mutex> lock(connections_mutex_);
-  for (auto& hdl : connections_) {
+  for (auto& pair : map_hdl_connections_) {
     websocketpp::lib::error_code ec;
-    server_.close(hdl, websocketpp::close::status::going_away, reason, ec);
+    server_.close(pair.first, websocketpp::close::status::going_away, reason, ec);
     if (ec) {
       logger_->error("AdminServer: Close connection failed: {}", ec.message());
     }
@@ -182,9 +188,9 @@ context_ptr AdminServer::OnTlsInit(connection_hdl hdl) {
 // -----------------------------------------------------------------------------
 
 bool AdminServer::LoadTlsData() {
-  cert_file_data_ = ReadFileToString(cert_file_path_);
-  key_file_data_ = ReadFileToString(key_file_path_);
-  dh_params_file_data_ = ReadFileToString(dh_params_file_path_);
+  cert_file_data_ = utils::StringFromFile(cert_file_path_);
+  key_file_data_ = utils::StringFromFile(key_file_path_);
+  dh_params_file_data_ = utils::StringFromFile(dh_params_file_path_);
 
   // Recommended cipher suite list for wide compatibility (2025)
   // Based on Mozilla Intermediate v5.7+
@@ -228,28 +234,53 @@ bool AdminServer::LoadTlsData() {
 }
 // -----------------------------------------------------------------------------
 
-std::string AdminServer::ReadFileToString(const std::string& file_path) {
-  std::ifstream file(file_path, std::ios::in);
-  if (!file.is_open()) {
-      return "";
+std::shared_ptr<AdminClientInfo> AdminServer::AddConnection(
+    connection_hdl hdl) {
+  std::unique_lock<std::mutex> lock(connections_mutex_);
+
+  auto obj = std::make_shared<AdminClientInfo>();
+  obj->index = next_conn_id_++;
+  obj->hdl = hdl;
+  map_id_connections_[obj->index] = obj;
+  map_hdl_connections_[obj->hdl] = obj;
+
+  return obj;
+}
+// -----------------------------------------------------------------------------
+
+void AdminServer::RemoveConnection(connection_hdl hdl) {
+  std::unique_lock<std::mutex> lock(connections_mutex_);
+
+  auto it = map_hdl_connections_.find(hdl);
+
+  if (it != map_hdl_connections_.end()) {
+    auto obj = it->second;
+    map_id_connections_.erase(obj->index);
+    map_hdl_connections_.erase(hdl);
   }
-  std::stringstream buffer;
-  buffer << file.rdbuf();
-  file.close();
-  return buffer.str();
+}
+// -----------------------------------------------------------------------------
+
+std::shared_ptr<AdminClientInfo> AdminServer::GetConnectionInfo(
+    connection_hdl hdl) {
+  std::unique_lock<std::mutex> lock(connections_mutex_);
+
+  auto it = map_hdl_connections_.find(hdl);
+
+  if (it != map_hdl_connections_.end()) {
+    return it->second;
+  }
+
+  return nullptr;
 }
 // -----------------------------------------------------------------------------
 
 void AdminServer::OnConnected(connection_hdl hdl) {
-  // add connection to list
-  {
-    std::unique_lock<std::mutex> lock(connections_mutex_);
-    connections_.insert(hdl);
-  }
-
+  std::shared_ptr<AdminClientInfo> obj = AddConnection(hdl);
   auto conn = server_.get_con_from_hdl(hdl);
 
-  logger_->info("AdminServer: Client connected from {}:{}",
+  logger_->info("AdminServer: Client({}) connected from {}:{}",
+                obj->index,
                 conn->get_remote_endpoint(),
                 conn->get_port());
 }
@@ -257,24 +288,86 @@ void AdminServer::OnConnected(connection_hdl hdl) {
 
 void AdminServer::OnDisconnected(connection_hdl hdl) {
   auto conn = server_.get_con_from_hdl(hdl);
-  logger_->info("AdminServer: Client disconnected {}:{}",
-                conn->get_remote_endpoint(),
-                conn->get_port());
+  auto it = map_hdl_connections_.find(hdl);
 
-  // remove connection from list
-  {
-    std::unique_lock<std::mutex> lock(connections_mutex_);
-    connections_.erase(hdl);
+  if (it != map_hdl_connections_.end()) {
+    auto obj = it->second;
+
+    logger_->info("AdminServer: Client({}) disconnected {}:{}",
+                  obj->index,
+                  conn->get_remote_endpoint(),
+                  conn->get_port());
+
+    RemoveConnection(hdl);
+  }
+  else {
+    logger_->info("AdminServer: Client(-) disconnected {}:{}",
+                  conn->get_remote_endpoint(),
+                  conn->get_port());
   }
 }
 // -----------------------------------------------------------------------------
 
 void AdminServer::OnError(connection_hdl hdl) {
-
+  auto conn = server_.get_con_from_hdl(hdl);
+  logger_->error("AdminServer: Client(-) error ", conn->get_ec().message());
 }
 // -----------------------------------------------------------------------------
 
-void AdminServer::OnDataRecv(connection_hdl hdl, message_ptr msg) {
+void AdminServer::OnMessage(connection_hdl hdl, message_ptr message) {
+  if (message->get_opcode() != websocketpp::frame::opcode::binary)
+    return;
 
+  protocol::ClientMessage msg;
+  if (!msg.ParseFromArray(message->get_payload().data(),
+                          message->get_payload().size())) {
+    // corrupted or incompatible
+    return;
+  }
+
+  switch (msg.body_case()) {
+    case protocol::ClientMessage::kLoginReq: {
+      const admin_auth::LoginReq& req = msg.login_req();
+      OnLoginReq(hdl, req);
+    } break;
+  }
+}
+// -----------------------------------------------------------------------------
+
+void AdminServer::OnLoginReq(connection_hdl hdl,
+                             const admin_auth::LoginReq& req) {
+  auto obj = GetConnectionInfo(hdl);
+
+  if (!obj) {
+    logger_->error("AdminServer::OnLoginReq: Client Info not found");
+    return;
+  }
+
+  bool authed = db_manager_->AuthUser(req.username(), req.password(), obj->user);
+
+  protocol::ServerMessage msg;
+  admin_auth::LoginRes* login = msg.mutable_login_res();
+  if (authed && obj->user.type == UserType::kAdmin) {
+    login->set_result(1);
+  }
+  else {
+    login->set_result(0);
+    if (!authed) {
+      login->set_reason("Invalid Credentials");
+    }
+    else if (obj->user.type != UserType::kAdmin) {
+      login->set_reason("Insufficient privileges");
+    }
+  }
+
+  utils::bytes buffer(msg.ByteSizeLong());
+  msg.SerializeToArray(buffer.data(), buffer.size());
+
+  websocketpp::lib::error_code ec;
+  server_.send(hdl,
+               buffer.data(),
+               buffer.size(),
+               websocketpp::frame::opcode::binary,
+               ec);
 }
 // -----------------------------------------------------------------------------

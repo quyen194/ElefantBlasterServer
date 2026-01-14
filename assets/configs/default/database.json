@@ -2,7 +2,7 @@
     "type_enum": "SQLite,PostgreSQL",
     "type": "SQLite",
     "SQLite": {
-        "connection": "asserts/db/elefant_blaster.db",
+        "connection": "assets/db/elefant_blaster.db",
         "reconnect_ms": 5000
     },
     "PostgreSQL": {

@@ -8,7 +8,7 @@
   created:   2025/11/30 08:04
   filename:  ElefantBlasterServer/src/control/process_control.cpp
 
-  purpose:
+  purpose:   Implementation file for the main application class
 *********************************************************************/
 
 
@@ -61,6 +61,8 @@ void ProcessControl::Create() {
 
   db_manager_.LoadConfig();
   db_manager_.CreateDatabase();
+
+  db_manager_.ConnectAsUser();
 
   admin_server_.Start();
   admin_server_.Active();

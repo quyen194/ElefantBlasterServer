@@ -94,30 +94,11 @@ FetchContent_Declare(
 FetchContent_MakeAvailable(nlohmann_json)
 target_link_libraries(${EXECUTABLE_NAME} PRIVATE nlohmann_json::nlohmann_json)
 
-# abseil-cpp (Abseil C++ Common Libraries)
-FetchContent_Declare(
-    absl
-    SOURCE_DIR ${CMAKE_SOURCE_DIR}/libs/abseil-cpp
-)
-FetchContent_MakeAvailable(absl)
-
-# Protocol Buffers (protobuf)
-set(protobuf_BUILD_TESTS OFF CACHE BOOL "" FORCE)
-set(protobuf_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
-set(protobuf_WITH_ZLIB OFF CACHE BOOL "" FORCE)
-set(protobuf_BUILD_PROTOC_BINARIES OFF CACHE BOOL "" FORCE)
-set(protobuf_INSTALL OFF CACHE BOOL "" FORCE)
-set(protobuf_BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
-set(protobuf_MSVC_STATIC_RUNTIME ON CACHE BOOL "" FORCE)
-FetchContent_Declare(
-    protobuf
-    SOURCE_DIR ${CMAKE_SOURCE_DIR}/libs/protobuf
-)
-FetchContent_MakeAvailable(protobuf)
-target_link_libraries(${EXECUTABLE_NAME} PRIVATE protobuf::libprotobuf)
-
 # Link websocketpp
 target_link_libraries(${EXECUTABLE_NAME} PRIVATE websocketpp::websocketpp)
+
+# ElefantBlasterProtocols
+target_link_libraries(${EXECUTABLE_NAME} PRIVATE ElefantBlasterProtocols)
 
 # ===================================================================
 # ASSET & RESOURCE HANDLING – FULLY AUTOMATIC FOR YOUR PROJECT

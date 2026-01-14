@@ -31,8 +31,10 @@
 #include <aries_base/definitions/macro.hpp>
 #include <aries_base/process/event/event.hpp>
 
+#include <network/shared/admin_protocols/client_protocol.pb.h>
+
 #include "common/settings_manager.hpp"
-#include "network/connection_info.hpp"
+#include "network/admin/admin_client_info.hpp"
 #include "storage/db_manager.hpp"
 // -----------------------------------------------------------------------------
 
@@ -41,7 +43,6 @@
 using namespace aries_base::process;
 // -----------------------------------------------------------------------------
 typedef websocketpp::config::asio::message_type::ptr message_ptr;
-typedef websocketpp::connection_hdl connection_hdl;
 typedef websocketpp::lib::shared_ptr<websocketpp::lib::asio::ssl::context> context_ptr;
 typedef websocketpp::server<websocketpp::config::asio_tls> websocket_server;
 // -----------------------------------------------------------------------------
@@ -67,13 +68,19 @@ class AdminServer {
   void OnConnected(connection_hdl hdl);
   void OnDisconnected(connection_hdl hdl);
   void OnError(connection_hdl hdl);
-  void OnDataRecv(connection_hdl hdl, message_ptr msg);
+  void OnMessage(connection_hdl hdl, message_ptr message);
 
   bool LoadTlsData();
-  std::string ReadFileToString(const std::string &file_path);
 
  private:
   void Worker();
+
+  std::shared_ptr<AdminClientInfo> AddConnection(connection_hdl hdl);
+  void RemoveConnection(connection_hdl hdl);
+  std::shared_ptr<AdminClientInfo> GetConnectionInfo(connection_hdl hdl);
+
+ private:
+  void OnLoginReq(connection_hdl hdl, const admin_auth::LoginReq& req);
 
  private:
   websocket_server server_;
@@ -89,7 +96,9 @@ class AdminServer {
   std::string dh_params_file_data_;
   std::string ciphers_;
 
-  std::set<connection_hdl, std::owner_less<connection_hdl>> connections_;
+  std::unordered_map<std::uint64_t, std::shared_ptr<AdminClientInfo>> map_id_connections_;
+  std::map<connection_hdl, std::shared_ptr<AdminClientInfo>, std::owner_less<connection_hdl>> map_hdl_connections_;
+  std::atomic<std::uint64_t> next_conn_id_;
   std::mutex connections_mutex_;
 
   Event worker_end_event_;

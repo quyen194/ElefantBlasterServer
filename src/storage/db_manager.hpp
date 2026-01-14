@@ -8,7 +8,7 @@
   created:   2025/12/27 14:15
   filename:  ElefantBlaster/ElefantBlasterServer/storage/db_manager.hpp
 
-  purpose:   Database manager for the Elefant Blaster server
+  purpose:   Header file for the database manager
 *********************************************************************/
 
 
@@ -27,6 +27,7 @@
 #include <aries_base/database/db_factory.hpp>
 
 #include "common/settings_manager.hpp"
+#include "entities/user.hpp"
 // -----------------------------------------------------------------------------
 
 
@@ -45,6 +46,8 @@ class DBManager {
 
   bool LoadConfig();
 
+  bool ConnectAsRoot();
+  bool ConnectAsUser();
   bool Connect(const std::string& connection_string);
   void Disconnect();
 
@@ -53,12 +56,17 @@ class DBManager {
   bool CreateDatabase();
   bool UpdateDatabase();
 
+  std::string NormalizeUsername(const std::string& username);
+  bool VerifyUsername(const std::string& username, std::string &rules);
+  bool AuthUser(const std::string& username, const std::string& password, User& user);
+
  private:
   int GetDbVersion();
   bool UpdateDatabaseV2();
   std::string StandalizeQueryCreateTable(const std::string& query, DBType db_type) const;
-
   std::string HashPassword(const std::string& password);
+  std::string ConvertTime(time_t utc_time);
+  time_t ConvertTime(std::string str_time);
 
  private:
   DBType db_type_;

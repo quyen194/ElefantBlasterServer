@@ -1,64 +1,57 @@
 /********************************************************************
-  Copyright 2025, Cong Quyen Knight. All rights reserved
+  Copyright 2026, Cong Quyen Knight. All rights reserved
 
   project:   Aries Games: Elefant Blaster
   author:    quyen19492
   email:     quyen19492@gmail.com
 
-  created:   2025/11/17 16:57
-  filename:  ElefantBlasterServer/src/control/process_control.hpp
+  created:   2026/01/12 07:04
+  filename:  ElefantBlaster/ElefantBlasterServer/entities/user.hpp
 
-  purpose:   Header file for the main application class
+  purpose:   Header file for user entity
 *********************************************************************/
 
 
 // -----------------------------------------------------------------------------
-#ifndef ELEFANT_BLASTER_SERVER_CONTROL_PROCESS_CONTROL_HPP
-#define ELEFANT_BLASTER_SERVER_CONTROL_PROCESS_CONTROL_HPP
+#ifndef ELEFANT_BLASTER_SERVER_ENTITIES_USER_HPP
+#define ELEFANT_BLASTER_SERVER_ENTITIES_USER_HPP
 // -----------------------------------------------------------------------------
 
 
 // -----------------------------------------------------------------------------
 #include <cstdint>
 #include <string>
-
-#include <spdlog/spdlog.h>
-
-#include <aries_base/definitions/macro.hpp>
-#include <aries_base/process/ipc/mpmc_bounded_queue/ipc_server.hpp>
-
-#include "common/settings_manager.hpp"
-#include "network/admin/admin_server.hpp"
-#include "storage/db_manager.hpp"
+#include <time.h>
 // -----------------------------------------------------------------------------
 
 
 // -----------------------------------------------------------------------------
-using namespace aries_base::process::ipc::mpmc_bounded_queue;
+namespace _UserType {
+  enum T {
+    kUnknown,
+    kAdmin,
+    kPlayer,
+  };
+}
+typedef _UserType::T UserType;
 // -----------------------------------------------------------------------------
 
 // -----------------------------------------------------------------------------
 
-class ProcessControl : public IpcServer {
- public:
-  ProcessControl();
-  ~ProcessControl();
-
-  void Create();
-
- private:
-  DBManager db_manager_;
-  AdminServer admin_server_;
-
- private:
-  SettingsManager* settings_;
-  std::shared_ptr<spdlog::logger> logger_;
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(ProcessControl);
+struct User {
+  std::uint64_t id;
+  UserType type;
+  std::string username;
+  std::string password_hash;
+  std::string display_name;
+  std::string api_token;
+  bool is_banned;
+  std::string ban_reason;
+  time_t banned_until;
+  time_t created_at;
 };
 // -----------------------------------------------------------------------------
 
 // -----------------------------------------------------------------------------
-#endif  // ELEFANT_BLASTER_SERVER_CONTROL_PROCESS_CONTROL_HPP
+#endif  // ELEFANT_BLASTER_SERVER_ENTITIES_USER_HPP
 // -----------------------------------------------------------------------------
