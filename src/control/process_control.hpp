@@ -41,14 +41,22 @@ using namespace aries_base::process::ipc::mpmc_bounded_queue;
 
 class ProcessControl : public IpcServer {
  public:
-  ProcessControl();
+  ProcessControl(int argc, char *argv[]);
   ~ProcessControl();
 
   void Create();
+  void Repawn();
+
+ private:
+  virtual void OnDestroy();
+  virtual void OnMessageReceived(uint16_t id, const uint8_t* message, uint32_t length);
 
  private:
   DBManager db_manager_;
   AdminServer admin_server_;
+
+  bool is_restarting_;
+  std::vector<std::string> startup_args_;
 
  private:
   SettingsManager* settings_;

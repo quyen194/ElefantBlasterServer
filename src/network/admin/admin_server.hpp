@@ -30,8 +30,11 @@
 
 #include <aries_base/definitions/macro.hpp>
 #include <aries_base/process/event/event.hpp>
+#include <aries_base/process/ipc/mpmc_bounded_queue/ipc_client.hpp>
+#include <aries_base/utils/bytes.hpp>
 
 #include <network/shared/admin_protocols/client_protocol.pb.h>
+#include <network/shared/admin_protocols/server_protocol.pb.h>
 
 #include "common/settings_manager.hpp"
 #include "network/admin/admin_client_info.hpp"
@@ -40,7 +43,8 @@
 
 
 // -----------------------------------------------------------------------------
-using namespace aries_base::process;
+using namespace aries_base;
+using namespace aries_base::process::ipc::mpmc_bounded_queue;
 // -----------------------------------------------------------------------------
 typedef websocketpp::config::asio::message_type::ptr message_ptr;
 typedef websocketpp::lib::shared_ptr<websocketpp::lib::asio::ssl::context> context_ptr;
@@ -49,7 +53,7 @@ typedef websocketpp::server<websocketpp::config::asio_tls> websocket_server;
 
 // -----------------------------------------------------------------------------
 
-class AdminServer {
+class AdminServer : public IpcClient {
  public:
   AdminServer(DBManager *db_manager);
   virtual ~AdminServer();
@@ -58,13 +62,17 @@ class AdminServer {
 
   bool Start();
   void Stop();
-  bool Active();
+  void Active();
   void Deactive();
+
+  bool Send(connection_hdl hdl, const protocol::ServerMessage &message);
+  bool Send(connection_hdl hdl, const utils::bytes &data);
 
   void DisconnectAllClients(const std::string &reason);
 
  public:
   context_ptr OnTlsInit(connection_hdl hdl);
+  bool OnValidate(connection_hdl hdl);
   void OnConnected(connection_hdl hdl);
   void OnDisconnected(connection_hdl hdl);
   void OnError(connection_hdl hdl);
@@ -80,10 +88,17 @@ class AdminServer {
   std::shared_ptr<AdminClientInfo> GetConnectionInfo(connection_hdl hdl);
 
  private:
-  void OnLoginReq(connection_hdl hdl, const admin_auth::LoginReq& req);
+  void OnLoginRequest(connection_hdl hdl, const admin_auth::LoginRequest& req);
+  void OnShutDownServer(connection_hdl hdl);
+  void OnRestartServer(connection_hdl hdl);
+  void OnActiveGameServer(connection_hdl hdl);
+  void OnDeactiveGameServer(connection_hdl hdl);
+  void OnDisconnectAllGameClients(connection_hdl hdl);
 
  private:
-  websocket_server server_;
+  std::unique_ptr<websocket_server> server_;
+
+  bool accept_client_;
   std::string host_;  // IP to bind
   int port_;
 
@@ -101,7 +116,7 @@ class AdminServer {
   std::atomic<std::uint64_t> next_conn_id_;
   std::mutex connections_mutex_;
 
-  Event worker_end_event_;
+  process::Event worker_end_event_;
 
  private:
   SettingsManager* settings_;

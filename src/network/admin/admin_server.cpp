@@ -20,8 +20,7 @@
 #include <aries_base/process/thread_pool/thread_pool.hpp>
 #include <aries_base/utils/file_io.hpp>
 
-#include <network/shared/admin_protocols/server_protocol.pb.h>
-
+#include "common/events.hpp"
 #include "network/admin/admin_server.hpp"
 // -----------------------------------------------------------------------------
 
@@ -40,20 +39,11 @@ typedef asio::ssl::context context;
 // -----------------------------------------------------------------------------
 
 AdminServer::AdminServer(DBManager* db_manager)
-    : next_conn_id_(1),
+    : accept_client_(false),
+      next_conn_id_(1),
       settings_(SettingsManager::Instance()),
       db_manager_(db_manager) {
   logger_ = settings_->GetLogger("admin_server", "AdminServer", true);
-
-  // Initialize Asio
-  server_.init_asio();
-
-  // Register our message handler
-  server_.set_tls_init_handler(bind(&AdminServer::OnTlsInit, this, _1));
-  server_.set_open_handler(bind(&AdminServer::OnConnected, this, _1));
-  server_.set_close_handler(bind(&AdminServer::OnDisconnected, this, _1));
-  server_.set_fail_handler(bind(&AdminServer::OnError, this, _1));
-  server_.set_message_handler(bind(&AdminServer::OnMessage, this, _1, _2));
 }
 // -----------------------------------------------------------------------------
 
@@ -90,11 +80,34 @@ bool AdminServer::Start() {
       return false;
   }
 
+  server_ = std::make_unique<websocket_server>();
+
+  // Initialize Asio
+  server_->init_asio();
+
+  // Register our message handler
+  server_->set_tls_init_handler(bind(&AdminServer::OnTlsInit, this, _1));
+  server_->set_validate_handler(bind(&AdminServer::OnValidate, this, _1));
+  server_->set_open_handler(bind(&AdminServer::OnConnected, this, _1));
+  server_->set_close_handler(bind(&AdminServer::OnDisconnected, this, _1));
+  server_->set_fail_handler(bind(&AdminServer::OnError, this, _1));
+  server_->set_message_handler(bind(&AdminServer::OnMessage, this, _1, _2));
+
   // Set perpetual mode to keep the server running
-  server_.start_perpetual();
+  server_->start_perpetual();
+
+  // Listen on the specified host and port
+  server_->listen(host_, std::to_string(port_));
+
+  // Start the server accept loop
+  server_->start_accept();
 
   ThreadPool::Instance()->PostTask(bind(&AdminServer::Worker, this),
                                    &worker_end_event_);
+
+  logger_->info("AdminServer: Server listening on {}:{}", host_, port_);
+
+  Active();
 
   logger_->info("AdminServer: Server started successfully");
 
@@ -104,34 +117,27 @@ bool AdminServer::Start() {
 
 void AdminServer::Stop() {
   logger_->info("AdminServer: Stopping server...");
-  // Unset perpetual mode so server stop when no connection actived
-  server_.stop_perpetual();
   Deactive();
+  // Unset perpetual mode so server stop when no connection actived
+  server_->stop_perpetual();
+  server_->stop_listening();
   DisconnectAllClients("Server shutting down");
+  server_->stop();
   worker_end_event_.Wait();
-  logger_->info("AdminServer: Server stopped.");
+  server_.reset();
+  logger_->info("AdminServer: Server stopped");
 }
 // -----------------------------------------------------------------------------
 
-bool AdminServer::Active() {
-  logger_->info("AdminServer: Activating server...");
-
-  // Listen on the specified host and port
-  server_.listen(host_, std::to_string(port_));
-
-  // Start the server accept loop
-  server_.start_accept();
-
-  logger_->info("AdminServer: Server listening on {}:{}", host_, port_);
-
-  return true;
+void AdminServer::Active() {
+  logger_->info("AdminServer: Start accepting clients");
+  accept_client_ = true;
 }
 // -----------------------------------------------------------------------------
 
 void AdminServer::Deactive() {
-  logger_->info("AdminServer: Deactivating server...");
-  server_.stop_listening();
-  logger_->info("AdminServer: Server deactivated.");
+  logger_->info("AdminServer: Stop accepting new clients");
+  accept_client_ = false;
 }
 // -----------------------------------------------------------------------------
 
@@ -140,7 +146,7 @@ void AdminServer::DisconnectAllClients(const std::string &reason) {
   std::unique_lock<std::mutex> lock(connections_mutex_);
   for (auto& pair : map_hdl_connections_) {
     websocketpp::lib::error_code ec;
-    server_.close(pair.first, websocketpp::close::status::going_away, reason, ec);
+    server_->close(pair.first, websocketpp::close::status::going_away, reason, ec);
     if (ec) {
       logger_->error("AdminServer: Close connection failed: {}", ec.message());
     }
@@ -153,7 +159,7 @@ void AdminServer::Worker() {
   // Start the ASIO io_service run loop
   logger_->info("AdminServer: Server run loop started");
   try {
-    server_.run();
+    server_->run();
   } catch (const std::exception& e) {
     logger_->error("AdminServer: Exception in server run loop: {}", e.what());
   }
@@ -277,7 +283,7 @@ std::shared_ptr<AdminClientInfo> AdminServer::GetConnectionInfo(
 
 void AdminServer::OnConnected(connection_hdl hdl) {
   std::shared_ptr<AdminClientInfo> obj = AddConnection(hdl);
-  auto conn = server_.get_con_from_hdl(hdl);
+  auto conn = server_->get_con_from_hdl(hdl);
 
   logger_->info("AdminServer: Client({}) connected from {}:{}",
                 obj->index,
@@ -286,8 +292,15 @@ void AdminServer::OnConnected(connection_hdl hdl) {
 }
 // -----------------------------------------------------------------------------
 
+bool AdminServer::OnValidate(connection_hdl hdl) {
+  auto conn = server_->get_con_from_hdl(hdl);
+  conn->set_status(websocketpp::http::status_code::service_unavailable);
+  return accept_client_;
+}
+// -----------------------------------------------------------------------------
+
 void AdminServer::OnDisconnected(connection_hdl hdl) {
-  auto conn = server_.get_con_from_hdl(hdl);
+  auto conn = server_->get_con_from_hdl(hdl);
   auto it = map_hdl_connections_.find(hdl);
 
   if (it != map_hdl_connections_.end()) {
@@ -309,7 +322,7 @@ void AdminServer::OnDisconnected(connection_hdl hdl) {
 // -----------------------------------------------------------------------------
 
 void AdminServer::OnError(connection_hdl hdl) {
-  auto conn = server_.get_con_from_hdl(hdl);
+  auto conn = server_->get_con_from_hdl(hdl);
   logger_->error("AdminServer: Client(-) error ", conn->get_ec().message());
 }
 // -----------------------------------------------------------------------------
@@ -326,16 +339,58 @@ void AdminServer::OnMessage(connection_hdl hdl, message_ptr message) {
   }
 
   switch (msg.body_case()) {
-    case protocol::ClientMessage::kLoginReq: {
-      const admin_auth::LoginReq& req = msg.login_req();
-      OnLoginReq(hdl, req);
+    case protocol::ClientMessage::kLoginRequest: {
+      OnLoginRequest(hdl, msg.login_request());
+    } break;
+    case protocol::ClientMessage::kShutdownServerRequest: {
+      OnShutDownServer(hdl);
+    } break;
+    case protocol::ClientMessage::kRestartServerRequest: {
+      OnRestartServer(hdl);
+    } break;
+    case protocol::ClientMessage::kActiveGameServerRequest: {
+      OnActiveGameServer(hdl);
+    } break;
+    case protocol::ClientMessage::kDeactiveGameServerRequest: {
+      OnDeactiveGameServer(hdl);
+    } break;
+    case protocol::ClientMessage::kDisconnectAllGameClientsRequest: {
+      OnDisconnectAllGameClients(hdl);
     } break;
   }
 }
 // -----------------------------------------------------------------------------
 
-void AdminServer::OnLoginReq(connection_hdl hdl,
-                             const admin_auth::LoginReq& req) {
+bool AdminServer::Send(connection_hdl hdl,
+                       const protocol::ServerMessage& message) {
+  utils::bytes buffer(message.ByteSizeLong());
+  message.SerializeToArray(buffer.data(), buffer.size());
+
+  return Send(hdl, buffer);
+}
+// -----------------------------------------------------------------------------
+
+bool AdminServer::Send(connection_hdl hdl, const utils::bytes &data) {
+  auto obj = GetConnectionInfo(hdl);
+
+  websocketpp::lib::error_code ec;
+  server_->send(hdl,  //
+                data.data(),
+                data.size(),
+                websocketpp::frame::opcode::binary,
+                ec);
+
+  if (ec) {
+    logger_->error("AdminServer: Client({}) Send message failed: {}", obj->index, ec.message());
+    return false;
+  }
+
+  return true;
+}
+// -----------------------------------------------------------------------------
+
+void AdminServer::OnLoginRequest(connection_hdl hdl,
+                                 const admin_auth::LoginRequest& req) {
   auto obj = GetConnectionInfo(hdl);
 
   if (!obj) {
@@ -346,28 +401,88 @@ void AdminServer::OnLoginReq(connection_hdl hdl,
   bool authed = db_manager_->AuthUser(req.username(), req.password(), obj->user);
 
   protocol::ServerMessage msg;
-  admin_auth::LoginRes* login = msg.mutable_login_res();
+  auto res = msg.mutable_login_response();
   if (authed && obj->user.type == UserType::kAdmin) {
-    login->set_result(1);
+    res->set_result(1);
   }
   else {
-    login->set_result(0);
+    res->set_result(0);
     if (!authed) {
-      login->set_reason("Invalid Credentials");
+      res->set_reason("Invalid Credentials");
     }
     else if (obj->user.type != UserType::kAdmin) {
-      login->set_reason("Insufficient privileges");
+      res->set_reason("Insufficient privileges");
     }
   }
 
-  utils::bytes buffer(msg.ByteSizeLong());
-  msg.SerializeToArray(buffer.data(), buffer.size());
+  Send(hdl, msg);
+}
+// -----------------------------------------------------------------------------
 
-  websocketpp::lib::error_code ec;
-  server_.send(hdl,
-               buffer.data(),
-               buffer.size(),
-               websocketpp::frame::opcode::binary,
-               ec);
+void AdminServer::OnShutDownServer(connection_hdl hdl) {
+  auto obj = GetConnectionInfo(hdl);
+
+  logger_->info("AdminServer: Client({}) Shutdown Server", obj->index);
+
+  IpcClient::Enqueue(EventId::kAdminServer_ShutdownServer);
+
+  protocol::ServerMessage msg;
+  auto res = msg.mutable_shutdown_server_response();
+  res->set_result(1);
+  Send(hdl, msg);
+}
+// -----------------------------------------------------------------------------
+
+void AdminServer::OnRestartServer(connection_hdl hdl) {
+  auto obj = GetConnectionInfo(hdl);
+
+  logger_->info("AdminServer: Client({}) Restart Server", obj->index);
+
+  IpcClient::Enqueue(EventId::kAdminServer_RestartServer);
+
+  protocol::ServerMessage msg;
+  auto res = msg.mutable_restart_server_response();
+  res->set_result(1);
+  Send(hdl, msg);
+}
+// -----------------------------------------------------------------------------
+
+void AdminServer::OnActiveGameServer(connection_hdl hdl) {
+  auto obj = GetConnectionInfo(hdl);
+
+  logger_->info("AdminServer: Client({}) Active GameServer", obj->index);
+
+  IpcClient::Enqueue(EventId::kAdminServer_ActiveGameServer);
+
+  protocol::ServerMessage msg;
+  auto res = msg.mutable_active_game_server_response();
+  res->set_result(1);
+  Send(hdl, msg);
+}
+// -----------------------------------------------------------------------------
+
+void AdminServer::OnDeactiveGameServer(connection_hdl hdl) {
+  auto obj = GetConnectionInfo(hdl);
+
+  logger_->info("AdminServer: Client({}) Deactive GameServer", obj->index);
+
+  IpcClient::Enqueue(EventId::kAdminServer_DeactiveGameServer);
+
+  protocol::ServerMessage msg;
+  auto res = msg.mutable_deactive_game_server_response();
+  res->set_result(1);
+  Send(hdl, msg);
+}
+// -----------------------------------------------------------------------------
+
+void AdminServer::OnDisconnectAllGameClients(connection_hdl hdl) {
+  auto obj = GetConnectionInfo(hdl);
+  logger_->info("AdminServer: Client({}) Disconnect all game clients", obj->index);
+  IpcClient::Enqueue(EventId::kAdminServer_DisconnectAllGameClients);
+
+  protocol::ServerMessage msg;
+  auto res = msg.mutable_disconnect_all_game_clients_response();
+  res->set_result(1);
+  Send(hdl, msg);
 }
 // -----------------------------------------------------------------------------
