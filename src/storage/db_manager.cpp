@@ -19,7 +19,12 @@
 #include <aries_base/encryption/hash/hash_factory.hpp>
 #include <aries_base/utils/scope_cleanup.hpp>
 
+#include <entities/permission_list.hpp>
+#include <entities/system_groups.hpp>
+#include <entities/system_roles.hpp>
+
 #include "storage/db_manager.hpp"
+#include "db_manager.hpp"
 // -----------------------------------------------------------------------------
 
 
@@ -142,35 +147,147 @@ bool DBManager::CreateDatabase() {
     return true;
   }
 
-  // create permissions table
+  // create users table
   query = R"(
-      CREATE TABLE IF NOT EXISTS permissions (
-          id            INTEGER PRIMARY KEY,
-          name          TEXT UNIQUE NOT NULL,
-          description   TEXT
+      CREATE TABLE IF NOT EXISTS users (
+          id            ID_TYPE_PLACEHOLDER,
+          type          INTEGER NOT NULL DEFAULT 2,     -- 1=admin, 2=player
+          username      TEXT UNIQUE NOT NULL,
+          password_hash TEXT NOT NULL,
+          display_name  TEXT NOT NULL,
+          api_token     TEXT NOT NULL,
+          is_banned     INTEGER DEFAULT 0,              -- BOOLEAN emulation
+          ban_reason    TEXT,
+          banned_until  TEXT,                           -- ISO 8601 or NULL
+          actived       INTEGER DEFAULT 1,              -- BOOLEAN emulation
+          created_at    TEXT DEFAULT (datetime('now'))  -- ISO 8601
       );
   )";
+  query = StandalizeQueryCreateTable(query, db_type_);
   if (!db_->Execute(query)) {
-    logger_->error("CreateDatabase: Failed to create permissions table: {}", db_->GetLastError());
+    logger_->error("CreateDatabase: Failed to create users table: {}",
+                   db_->GetLastError());
     return false;
   }
 
-  // add all permissions
+  // create groups table
+  query = R"(
+      CREATE TABLE IF NOT EXISTS groups (
+          id            ID_TYPE_PLACEHOLDER,
+          is_system     INTEGER DEFAULT 1,
+          name          TEXT UNIQUE NOT NULL,           -- example: "Admins", "Moderators", "Players", "VIP"
+          display_name  TEXT NOT NULL,
+          description   TEXT,
+          actived       INTEGER DEFAULT 1,              -- BOOLEAN emulation
+          created_at    TEXT DEFAULT (datetime('now'))  -- ISO 8601
+      );
+  )";
+  query = StandalizeQueryCreateTable(query, db_type_);
+  if (!db_->Execute(query)) {
+    logger_->error("CreateDatabase: Failed to create groups table: {}",
+                   db_->GetLastError());
+    return false;
+  }
 
   // create roles table
   query = R"(
       CREATE TABLE IF NOT EXISTS roles (
-          id            INTEGER PRIMARY KEY,
+          id            ID_TYPE_PLACEHOLDER,
+          is_system     INTEGER DEFAULT 1,
           name          TEXT UNIQUE NOT NULL,
-          description   TEXT
+          display_name  TEXT NOT NULL,
+          description   TEXT,
+          actived       INTEGER DEFAULT 1,              -- BOOLEAN emulation
+          created_at    TEXT DEFAULT (datetime('now'))  -- ISO 8601
       );
   )";
+  query = StandalizeQueryCreateTable(query, db_type_);
   if (!db_->Execute(query)) {
-    logger_->error("CreateDatabase: Failed to create roles table: {}", db_->GetLastError());
+    logger_->error("CreateDatabase: Failed to create roles table: {}",
+                   db_->GetLastError());
     return false;
   }
 
-  // add all roles
+  // create permissions table
+  query = R"(
+      CREATE TABLE IF NOT EXISTS permissions (
+          id          ID_TYPE_PLACEHOLDER,
+          risk_level  INTEGER,
+          name        TEXT UNIQUE NOT NULL,
+          description TEXT
+      );
+  )";
+  query = StandalizeQueryCreateTable(query, db_type_);
+  if (!db_->Execute(query)) {
+    logger_->error("CreateDatabase: Failed to create permissions table: {}",
+                   db_->GetLastError());
+    return false;
+  }
+
+  // create maps table
+  query = R"(
+      CREATE TABLE IF NOT EXISTS maps (
+          id          ID_TYPE_PLACEHOLDER,
+          name        TEXT UNIQUE NOT NULL,
+          data        TEXT NOT NULL,                     -- JSON string
+          width       INTEGER NOT NULL,
+          height      INTEGER NOT NULL,
+          owner_id    INTEGER REFERENCES users(id),      -- NULL = official
+          status      INTEGER NOT NULL DEFAULT 0,        -- 0=official, 10=private, 11=pending, 12=public
+          uploaded_at TEXT DEFAULT (datetime('now')),
+          approved_by INTEGER REFERENCES users(id),
+          approved_at TEXT
+      );
+  )";
+  query = StandalizeQueryCreateTable(query, db_type_);
+  if (!db_->Execute(query)) {
+    logger_->error("CreateDatabase: Failed to create maps table: {}",
+                   db_->GetLastError());
+    return false;
+  }
+
+  // create group_users table
+  query = R"(
+      CREATE TABLE IF NOT EXISTS group_users (
+          group_id  INTEGER REFERENCES groups(id),
+          user_id   INTEGER REFERENCES users(id),
+          PRIMARY KEY (group_id, user_id)
+      );
+  )";
+  query = StandalizeQueryCreateTable(query, db_type_);
+  if (!db_->Execute(query)) {
+    logger_->error("CreateDatabase: Failed to create user_groups table: {}",
+                   db_->GetLastError());
+    return false;
+  }
+
+  // create group_roles table
+  query = R"(
+      CREATE TABLE IF NOT EXISTS group_roles (
+          group_id  INTEGER REFERENCES groups(id),
+          role_id   INTEGER REFERENCES roles(id),
+          PRIMARY KEY (user_id, role_id)
+      );
+  )";
+  if (!db_->Execute(query)) {
+    logger_->error("CreateDatabase: Failed to create group_roles table: {}",
+                   db_->GetLastError());
+    return false;
+  }
+
+  // create user_roles table
+  query = R"(
+      CREATE TABLE IF NOT EXISTS user_roles (
+          user_id INTEGER REFERENCES users(id),
+          role_id INTEGER REFERENCES roles(id),
+          PRIMARY KEY (user_id, role_id)
+      );
+  )";
+  if (!db_->Execute(query)) {
+    logger_->error("CreateDatabase: Failed to create user_roles table: {}",
+                   db_->GetLastError());
+    return false;
+  }
 
   // create role_permissions table
   query = R"(
@@ -181,102 +298,28 @@ bool DBManager::CreateDatabase() {
       );
   )";
   if (!db_->Execute(query)) {
-    logger_->error("CreateDatabase: Failed to create role_permissions table: {}", db_->GetLastError());
-    return false;
-  }
-
-  // create users table
-  query = R"(
-      CREATE TABLE IF NOT EXISTS users (
-          id            ID_TYPE_PLACEHOLDER,
-          type          INTEGER NOT NULL DEFAULT 2,        -- 1=admin, 2=player
-          username      TEXT UNIQUE NOT NULL,
-          password_hash TEXT NOT NULL,
-          display_name  TEXT NOT NULL,
-          api_token     TEXT NOT NULL,
-          is_banned     INTEGER DEFAULT 0,                 -- BOOLEAN emulation
-          ban_reason    TEXT,
-          banned_until  TEXT,                              -- ISO 8601 or NULL
-          created_at    TEXT DEFAULT (datetime('now'))     -- ISO 8601
-      );
-  )";
-  query = StandalizeQueryCreateTable(query, db_type_);
-  if (!db_->Execute(query)) {
-    logger_->error("CreateDatabase: Failed to create users table: {}", db_->GetLastError());
-    return false;
-  }
-
-  // add admin user
-  {
-    std::string username = "admin";
-    std::string password = "quyen194";
-    query = R"(
-        INSERT INTO users(type, username, password_hash, display_name, api_token)
-        VALUES(1, ?, ?, 'Administrator', 'N/A')
-    )";
-    auto stmt = db_->Prepare(query);
-    if (!stmt) {
-      logger_->error("CreateDatabase: Failed to create admin user: {}", db_->GetLastError());
-      return false;
-    }
-
-    stmt->BindString(1, username);
-    stmt->BindString(2, HashPassword(password));
-
-    if (!stmt->Execute()) {
-      logger_->error("CreateDatabase: Failed to create admin user: {}", stmt->GetLastError());
-      return false;
-    }
-
-    logger_->info(
-        "CreateDatabase: Create Administrator user with username: {} / password: {}",
-        username.c_str(),
-        password.c_str());
-  }
-
-  // create user_roles table
-  query = R"(
-      CREATE TABLE IF NOT EXISTS user_roles (
-          user_id       INTEGER REFERENCES users(id),
-          role_id       INTEGER REFERENCES roles(id),
-          PRIMARY KEY (user_id, role_id)
-      );
-  )";
-  if (!db_->Execute(query)) {
-    logger_->error("CreateDatabase: Failed to create user_roles table: {}", db_->GetLastError());
-    return false;
-  }
-
-  // create maps table
-  query = R"(
-      CREATE TABLE IF NOT EXISTS maps (
-          id            ID_TYPE_PLACEHOLDER,
-          name          TEXT NOT NULL,
-          data          TEXT NOT NULL,                     -- JSON string
-          width         INTEGER NOT NULL,
-          height        INTEGER NOT NULL,
-          owner_id      INTEGER REFERENCES users(id),      -- NULL = official
-          status        INTEGER NOT NULL DEFAULT 0,        -- 0=official, 10=private, 11=pending, 12=public
-          uploaded_at   TEXT DEFAULT (datetime('now')),
-          approved_by   INTEGER REFERENCES users(id),
-          approved_at   TEXT
-      );
-  )";
-  query = StandalizeQueryCreateTable(query, db_type_);
-  if (!db_->Execute(query)) {
-    logger_->error("CreateDatabase: Failed to create maps table: {}", db_->GetLastError());
+    logger_->error(
+        "CreateDatabase: Failed to create role_permissions table: {}",
+        db_->GetLastError());
     return false;
   }
 
   // create db_version table
   query = R"(
       CREATE TABLE IF NOT EXISTS db_version (
-          version       INTEGER PRIMARY KEY,
-          uploaded_at   TEXT DEFAULT (datetime('now'))
+          version     ID_TYPE_PLACEHOLDER,
+          uploaded_at TEXT DEFAULT (datetime('now'))
       );
   )";
+  query = StandalizeQueryCreateTable(query, db_type_);
   if (!db_->Execute(query)) {
-    logger_->error("CreateDatabase: Failed to create db_version table: {}", db_->GetLastError());
+    logger_->error("CreateDatabase: Failed to create db_version table: {}",
+                   db_->GetLastError());
+    return false;
+  }
+
+  if (!AddDefaultData()) {
+    logger_->error("CreateDatabase: Failed to add default data");
     return false;
   }
 
@@ -285,7 +328,8 @@ bool DBManager::CreateDatabase() {
       INSERT INTO db_version (version) VALUES (1);
   )";
   if (!db_->Execute(query)) {
-    logger_->error("CreateDatabase: Failed to insert initial db_version: {}", db_->GetLastError());
+    logger_->error("CreateDatabase: Failed to insert initial db_version: {}",
+                   db_->GetLastError());
     return false;
   }
 
@@ -295,6 +339,175 @@ bool DBManager::CreateDatabase() {
 
   return true;
 }
+// -----------------------------------------------------------------------------
+
+bool DBManager::AddDefaultData() {
+  bool result = false;
+
+  logger_->info("AddDefaultData: Start");
+
+  // add all permissions
+  if (!AddAllPermissions()) {
+    logger_->error("AddDefaultData: Failed to add all permissions");
+    return false;
+  }
+
+  // add all system roles
+  Role role;
+  role.is_system = true;
+
+  role.name = system::role::super_admin;
+  role.display_name = "Super Admin";
+  role.desc = "Super Admin Controls Everything";
+  if (!AddRole(role)) {
+    return false;
+  }
+  if (!AddRolePermissions(role.name,
+                          {permission::self::all,
+                           permission::admin::all,
+                           permission::usergroup::all,
+                           permission::user::all,
+                           permission::role::all,
+                           permission::server::app::all,
+                           permission::server::admin::all,
+                           permission::server::game::all,
+                           permission::match::all,
+                           permission::map::all})) {
+    return false;
+  }
+
+  role.name = system::role::server_admin;
+  role.display_name = "Server Admin";
+  role.desc = "Server Manager";
+  if (!AddRole(role)) {
+    return false;
+  }
+
+  role.name = system::role::game_admin;
+  role.display_name = "Game Admin";
+  role.desc = "Game Master";
+  if (!AddRole(role)) {
+    return false;
+  }
+
+  role.name = system::role::player;
+  role.display_name = "Player";
+  role.desc = "Join Match, Replay Match";
+  if (!AddRole(role)) {
+    return false;
+  }
+  if (!AddRolePermissions(role.name,
+                          {permission::match::create,  //
+                           permission::match::replay})) {
+    return false;
+  }
+
+  role.name = system::role::guest;
+  role.display_name = "Guest";
+  role.desc = "View Match, Replay Match";
+  if (!AddRole(role)) {
+    return false;
+  }
+  if (!AddRolePermissions(
+          role.name,
+          {permission::match::replay})) {
+    return false;
+  }
+
+  role.name = system::role::match_owner;
+  role.display_name = "Match Owner";
+  role.desc = "View Match, Replay Match";
+  if (!AddRole(role)) {
+    return false;
+  }
+  if (!AddRolePermissions(role.name,
+                          {permission::match::update,
+                           permission::match::start,
+                           permission::match::pause,
+                           permission::match::resume,
+                           permission::match::add_member,
+                           permission::match::kick_member,
+                           permission::match::replay})) {
+    return false;
+  }
+
+  // add all system groups
+  Group group;
+  group.is_system = true;
+
+  group.name = system::group::server_admins;
+  group.display_name = "Server Admins";
+  group.desc = "Server Managers";
+  if (!AddGroup(group)) {
+    return false;
+  }
+  if (!AddGroupRole(std::string(system::group::server_admins),
+                        std::string(system::role::server_admin))) {
+    return false;
+  }
+
+  group.name = system::group::game_admins;
+  group.display_name = "Game Admins";
+  group.desc = "Game Masters";
+  if (!AddGroup(group)) {
+    return false;
+  }
+  if (!AddGroupRole(std::string(system::group::game_admins),
+                    std::string(system::role::game_admin))) {
+    return false;
+  }
+
+  group.name = system::group::players;
+  group.display_name = "Players";
+  group.desc = "Normal Players";
+  if (!AddGroup(group)) {
+    return false;
+  }
+  if (!AddGroupRole(std::string(system::group::players),
+                    std::string(system::role::player))) {
+    return false;
+  }
+
+  group.name = system::group::guests;
+  group.display_name = "Guest";
+  group.desc = "Anonymous Guest";
+  if (!AddGroup(group)) {
+    return false;
+  }
+  if (!AddGroupRole(std::string(system::group::guests),
+                    std::string(system::role::guest))) {
+    return false;
+  }
+
+  // add system users
+  User admin_user = {
+      UserType::kAdmin,  // type
+      "admin",           // username
+      "quyen194",        // password
+      "",                // password_hash
+      "Administrator",   // display_name
+      "N/A",             // api_token
+  };
+
+  result = AddUser(admin_user);
+  if (!result) {
+    logger_->error(
+        "AddDefaultData: Failed to create Administrator user({} / {}): {}",
+        admin_user.username,
+        admin_user.password,
+        db_->GetLastError());
+    return false;
+  }
+
+  logger_->info(
+      "AddDefaultData: Create Administrator user with username: {} / password: {}",
+      admin_user.username,
+      admin_user.password);
+
+  logger_->info("AddDefaultData: End successfully");
+
+  return true;
+ }
 // -----------------------------------------------------------------------------
 
 bool DBManager::UpdateDatabase() {
@@ -401,6 +614,34 @@ std::string DBManager::StandalizeQueryCreateTable(const std::string& query,
 }
 // -----------------------------------------------------------------------------
 
+std::string DBManager::ConvertTime(time_t utc_time) {
+  std::tm tm = {};
+
+#if defined(_WIN32)
+  gmtime_s(&tm, &utc_time);  // UTC
+#else
+  gmtime_r(&utc_time, &tm);  // UTC
+#endif
+
+  std::ostringstream oss;
+  oss << std::put_time(&tm, "%Y-%m-%d %H:%M:%S");
+  return oss.str();
+}
+// -----------------------------------------------------------------------------
+
+time_t DBManager::ConvertTime(std::string str_time) {
+  std::tm tm = {};
+
+  strptime(str_time.c_str(), "%Y-%m-%d %H:%M:%S", &tm);
+
+#if defined(_WIN32)
+  return _mkgmtime(&tm);  // UTC
+#else
+  return timegm(&tm);  // UTC
+#endif
+}
+// -----------------------------------------------------------------------------
+
 std::string DBManager::NormalizeUsername(const std::string& username) {
   std::string output = username;
   std::transform(
@@ -473,37 +714,87 @@ std::string DBManager::HashPassword(const std::string& password) {
 }
 // -----------------------------------------------------------------------------
 
-std::string DBManager::ConvertTime(time_t utc_time) {
-  std::tm tm = {};
+bool DBManager::AddUser(const User& user) {
+  std::string query = R"(
+      INSERT INTO users(type, username, password_hash, display_name, api_token)
+      VALUES(?, ?, ?, ?, ?)
+  )";
+  auto stmt = db_->Prepare(query);
+  if (!stmt) {
+    logger_->error("AddUser: Failed to prepare stmt: {}", db_->GetLastError());
+    return false;
+  }
 
-#if defined(_WIN32)
-  gmtime_s(&tm, &utc_time);  // UTC
-#else
-  gmtime_r(&utc_time, &tm);  // UTC
-#endif
+  int i = 1;
+  stmt->BindInt(i++, user.type);
+  stmt->BindString(i++, user.username);
+  stmt->BindString(i++, HashPassword(user.password));
+  stmt->BindString(i++, user.display_name);
+  stmt->BindString(i++, user.api_token);
 
-  std::ostringstream oss;
-  oss << std::put_time(&tm, "%Y-%m-%d %H:%M:%S");
-  return oss.str();
+  if (!stmt->Execute()) {
+    logger_->error("AddUser: Failed to add user({}): {}",
+                   user.username,
+                   stmt->GetLastError());
+    return false;
+  }
+
+  logger_->info("AddUser: Add user({}) successfully", user.username);
+
+  return true;
 }
 // -----------------------------------------------------------------------------
 
-time_t DBManager::ConvertTime(std::string str_time) {
-  std::tm tm = {};
+bool DBManager::UpdateUser(const User& user) {
+  std::string query = R"(
+      UPDATE users
+      SET
+        type = ?,
+        password_hash = ?,
+        display_name = ?,
+        api_token = ?
+      WHERE username = ?
+  )";
+  auto stmt = db_->Prepare(query);
+  if (!stmt) {
+    logger_->error("AddUser: Failed to prepare stmt: {}", db_->GetLastError());
+    return false;
+  }
 
-  strptime(str_time.c_str(), "%Y-%m-%d %H:%M:%S", &tm);
+  int i = 1;
+  stmt->BindInt(i++, user.type);
+  stmt->BindString(i++, HashPassword(user.password));
+  stmt->BindString(i++, user.display_name);
+  stmt->BindString(i++, user.api_token);
+  stmt->BindString(i++, user.username);
 
-#if defined(_WIN32)
-  return _mkgmtime(&tm);  // UTC
-#else
-  return timegm(&tm);  // UTC
-#endif
+  if (!stmt->Execute()) {
+    logger_->error("AddUser: Failed to update user({}): {}",
+                   user.username,
+                   stmt->GetLastError());
+    return false;
+  }
+
+  logger_->info("AddUser: Update user({}) successfully", user.username);
+
+  return true;
 }
+// -----------------------------------------------------------------------------
+
+bool DBManager::GetUser(const std::string& username, DbUser& user) {
+  return false;
+}
+// -----------------------------------------------------------------------------
+
+bool DBManager::DeactivateUser(const std::string& username) { return false; }
+// -----------------------------------------------------------------------------
+
+bool DBManager::GetAllUsers(std::vector<DbUser> users) { return false; }
 // -----------------------------------------------------------------------------
 
 bool DBManager::AuthUser(const std::string& username,
                          const std::string& password,
-                         User& user) {
+                         DbUser& user) {
   int i = 0;
   std::string normalized_username = NormalizeUsername(username);
   std::string hash_password = HashPassword(password);
@@ -549,6 +840,293 @@ bool DBManager::AuthUser(const std::string& username,
   user.ban_reason = result_set->GetString(i++);
   user.banned_until = ConvertTime(result_set->GetString(i++));
   user.created_at = 0;
+
+  return true;
+}
+// -----------------------------------------------------------------------------
+
+bool DBManager::AddUserRole(const std::string& username,
+                            const std::string& role_name) {
+  std::string query = R"(
+      WITH tb_users AS (
+          SELECT id AS user_id
+          FROM users
+          WHERE username = ?
+      ),
+      tb_roles AS (
+          SELECT id AS role_id
+          FROM roles
+          WHERE name = ?
+      )
+      INSERT INTO user_roles (user_id, role_id)
+      SELECT tb_users.user_id, tb_roles.role_id
+      FROM tb_users
+      CROSS JOIN tb_roles
+      ON CONFLICT (user_id, role_id) DO NOTHING;
+  )";
+  auto stmt = db_->Prepare(query);
+  if (!stmt) {
+    logger_->error("AddUserRole: Failed to prepare insert statement: {}",
+                   db_->GetLastError());
+    return false;
+  }
+
+  int i = 1;
+  stmt->BindString(i++, username);
+  stmt->BindString(i++, role_name);
+
+  if (!stmt->Execute()) {
+    logger_->error("AddUserRole: Failed to add role({}) for user({}): {}",
+                   role_name,
+                   username,
+                   stmt->GetLastError());
+    return false;
+  }
+
+  logger_->info("AddUserRole: Add role({}) for user({}) successfully",
+                role_name,
+                username);
+
+  return true;
+}
+// -----------------------------------------------------------------------------
+
+bool DBManager::AddGroup(const Group& group) {
+  std::string query = R"(
+      INSERT INTO groups (is_system, name, display_name, description)
+      VALUES (?, ?, ?)
+  )";
+  auto stmt = db_->Prepare(query);
+  if (!stmt) {
+    logger_->error("AddGroup: Failed to prepare insert statement: {}",
+                   db_->GetLastError());
+    return false;
+  }
+
+  int i = 1;
+  stmt->BindInt(i++, group.is_system ? 1 : 0);
+  stmt->BindString(i++, group.name);
+  stmt->BindString(i++, group.display_name);
+  stmt->BindString(i++, group.desc);
+
+  if (!stmt->Execute()) {
+    logger_->error("AddGroup: Failed to add group({}): {}",
+                    group.name,
+                    stmt->GetLastError());
+    return false;
+  }
+
+  logger_->info("AddGroup: Add group({}) successfully", group.name);
+
+  return true;
+}
+// -----------------------------------------------------------------------------
+
+bool DBManager::AddGroupUser(const std::string& group_name,
+                             const std::string& user_name) {
+  std::string query = R"(
+      WITH tb_groups AS (
+          SELECT id AS group_id
+          FROM groups
+          WHERE name = ?
+      ),
+      tb_users AS (
+          SELECT id AS user_id
+          FROM users
+          WHERE username = ?
+      )
+      INSERT INTO group_users (group_id, user_id)
+      SELECT tb_groups.group_id, tb_users.user_id
+      FROM tb_groups
+      CROSS JOIN tb_users
+      ON CONFLICT (group_id, user_id) DO NOTHING;
+  )";
+  auto stmt = db_->Prepare(query);
+  if (!stmt) {
+    logger_->error("AddGroupUser: Failed to prepare insert statement: {}",
+                   db_->GetLastError());
+    return false;
+  }
+
+  int i = 1;
+  stmt->BindString(i++, group_name);
+  stmt->BindString(i++, user_name);
+
+  if (!stmt->Execute()) {
+    logger_->error("AddGroupUser: Failed to add user({}) to group({}): {}",
+                   user_name,
+                   group_name,
+                   stmt->GetLastError());
+    return false;
+  }
+
+  logger_->info("AddGroupUser: Add user({}) to group({}) successfully",
+                user_name,
+                group_name);
+
+  return true;
+}
+// -----------------------------------------------------------------------------
+
+bool DBManager::AddGroupRole(const std::string& group_name,
+                             const std::string& role_name) {
+  std::string query = R"(
+      WITH tb_groups AS (
+          SELECT id AS group_id
+          FROM groups
+          WHERE name = ?
+      ),
+      tb_roles AS (
+          SELECT id AS role_id
+          FROM roles
+          WHERE name = ?
+      )
+      INSERT INTO group_roles (group_id, role_id)
+      SELECT tb_groups.group_id, tb_roles.role_id
+      FROM tb_groups
+      CROSS JOIN tb_roles
+      ON CONFLICT (group_id, role_id) DO NOTHING;
+  )";
+  auto stmt = db_->Prepare(query);
+  if (!stmt) {
+    logger_->error("AddGroupRole: Failed to prepare insert statement: {}",
+                   db_->GetLastError());
+    return false;
+  }
+
+  int i = 1;
+  stmt->BindString(i++, group_name);
+  stmt->BindString(i++, role_name);
+
+  if (!stmt->Execute()) {
+    logger_->error("AddGroupRole: Failed to add role({}) for group({}): {}",
+                   role_name,
+                   group_name,
+                   stmt->GetLastError());
+    return false;
+  }
+
+  logger_->info("AddGroupUser: Add role({}) for group({}) successfully",
+                role_name,
+                group_name);
+
+  return true;
+}
+// -----------------------------------------------------------------------------
+
+bool DBManager::AddRole(const Role& role) {
+  std::string query = R"(
+      INSERT INTO roles (is_system, name, display_name, description)
+      VALUES (?, ?, ?)
+  )";
+  auto stmt = db_->Prepare(query);
+  if (!stmt) {
+    logger_->error("AddRole: Failed to prepare insert statement: {}",
+                   db_->GetLastError());
+    return false;
+  }
+
+  int i = 1;
+  stmt->BindInt(i++, role.is_system ? 1 : 0);
+  stmt->BindString(i++, role.name);
+  stmt->BindString(i++, role.display_name);
+  stmt->BindString(i++, role.desc);
+
+  if (!stmt->Execute()) {
+    logger_->error("AddRole: Failed to add role({}): {}",
+                    role.name,
+                    stmt->GetLastError());
+    return false;
+  }
+
+  logger_->info("AddRole: Add role({}) successfully", role.name);
+
+  return true;
+}
+// -----------------------------------------------------------------------------
+
+bool DBManager::AddRolePermissions(
+    const std::string& role_name,
+    const std::set<std::string_view>& permissions) {
+
+  std::string query = R"(
+      WITH tb_roles AS (
+          SELECT id AS role_id
+          FROM roles
+          WHERE name = ?
+      ),
+      tb_permissions AS (
+          SELECT id AS permission_id
+          FROM permissions
+          WHERE name = ?
+      )
+      INSERT INTO role_permissions (role_id, permission_id)
+      SELECT tb_roles.role_id, tb_permissions.permission_id
+      FROM tb_roles
+      CROSS JOIN tb_permissions
+      ON CONFLICT (role_id, permission_id) DO NOTHING;
+  )";
+  auto stmt = db_->Prepare(query);
+  if (!stmt) {
+    logger_->error("AddRolePermissions: Failed to prepare insert statement: {}",
+                   db_->GetLastError());
+    return false;
+  }
+
+  for (auto permission : permissions) {
+    stmt->Reset();
+    int i = 1;
+    stmt->BindString(i++, role_name);
+    stmt->BindString(i++, std::string(permission));
+
+    if (!stmt->Execute()) {
+      logger_->error(
+          "AddRolePermissions: Failed to add permission({}) to role({}): {}",
+          permission,
+          role_name,
+          stmt->GetLastError());
+      return false;
+    }
+
+    logger_->info(
+        "AddRolePermissions: Add permission({}) to role({}) successfully",
+        permission,
+        role_name);
+  }
+
+  return true;
+}
+// -----------------------------------------------------------------------------
+
+bool DBManager::AddAllPermissions() {
+  std::string query = R"(
+      INSERT INTO permissions (name, description)
+      VALUES (?, ?)
+  )";
+  auto stmt = db_->Prepare(query);
+  if (!stmt) {
+    logger_->error("AddAllPermissions: Failed to prepare insert statement: {}",
+                   db_->GetLastError());
+    return false;
+  }
+
+  for (auto permission : kPermissions) {
+    stmt->Reset();
+    int i = 1;
+    stmt->BindInt(i++, permission.risk);
+    stmt->BindString(i++, std::string(permission.name));
+    stmt->BindString(i++, std::string(permission.desc));
+
+    if (!stmt->Execute()) {
+      logger_->error("AddAllPermissions: Failed to add permission({}): {}",
+                     permission.name,
+                     stmt->GetLastError());
+      return false;
+    }
+  }
+
+  logger_->info(
+      "AddAllPermissions: Add all permission successfully");
 
   return true;
 }

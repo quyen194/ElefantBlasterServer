@@ -1,45 +1,38 @@
 /********************************************************************
-  Copyright 2014, Cong Quyen Knight. All rights reserved
+  Copyright 2026, Cong Quyen Knight. All rights reserved
 
   project:   Aries Games: Elefant Blaster
   author:    quyen19492
   email:     quyen19492@gmail.com
 
-  created:   2025/11/15 19:28
-  filename:  ElefantBlaster/ElefantBlasterServer/network/admin/admin_client_info.hpp
+  created:   2026/01/18 07:56
+  filename:  ElefantBlaster/ElefantBlasterServer/entities/db_group.hpp
 
-  purpose:   Header file for admin client information
+  purpose:   Header file for database group entity
 *********************************************************************/
 
 
 // -----------------------------------------------------------------------------
-#ifndef ELEFANT_BLASTER_SERVER_NETWORK_ADMIN_ADMIN_CLIENT_INFO_HPP
-#define ELEFANT_BLASTER_SERVER_NETWORK_ADMIN_ADMIN_CLIENT_INFO_HPP
+#ifndef ELEFANT_BLASTER_SERVER_ENTITIES_DB_GROUP_HPP
+#define ELEFANT_BLASTER_SERVER_ENTITIES_DB_GROUP_HPP
 // -----------------------------------------------------------------------------
 
 
 // -----------------------------------------------------------------------------
 #include <cstdint>
-#include <string>
 
-#include "entities/db_user.hpp"
+#include <entities/group.hpp>
 // -----------------------------------------------------------------------------
 
 
 // -----------------------------------------------------------------------------
-typedef websocketpp::connection_hdl connection_hdl;
-// -----------------------------------------------------------------------------
 
-// -----------------------------------------------------------------------------
-
-struct AdminClientInfo {
-  std::uint64_t index;
-  connection_hdl hdl;
-
-  DbUser user;
+struct DbGroup : public Group {
+  std::uint64_t id;
+  time_t created_at;
 };
 // -----------------------------------------------------------------------------
 
 // -----------------------------------------------------------------------------
-#endif  // ELEFANT_BLASTER_SERVER_NETWORK_ADMIN_ADMIN_CLIENT_INFO_HPP
+#endif  // ELEFANT_BLASTER_SERVER_ENTITIES_DB_GROUP_HPP
 // -----------------------------------------------------------------------------

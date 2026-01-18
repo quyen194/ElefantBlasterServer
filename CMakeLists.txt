@@ -97,8 +97,8 @@ target_link_libraries(${EXECUTABLE_NAME} PRIVATE nlohmann_json::nlohmann_json)
 # Link websocketpp
 target_link_libraries(${EXECUTABLE_NAME} PRIVATE websocketpp::websocketpp)
 
-# ElefantBlasterProtocols
-target_link_libraries(${EXECUTABLE_NAME} PRIVATE ElefantBlasterProtocols)
+# ElefantBlasterCommon
+target_link_libraries(${EXECUTABLE_NAME} PRIVATE ElefantBlasterCommon)
 
 # ===================================================================
 # ASSET & RESOURCE HANDLING – FULLY AUTOMATIC FOR YOUR PROJECT

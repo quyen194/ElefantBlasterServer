@@ -19,6 +19,7 @@
 
 
 // -----------------------------------------------------------------------------
+#include <set>
 #include <string>
 
 #include <spdlog/spdlog.h>
@@ -27,7 +28,9 @@
 #include <aries_base/database/db_factory.hpp>
 
 #include "common/settings_manager.hpp"
-#include "entities/user.hpp"
+#include "entities/db_group.hpp"
+#include "entities/db_role.hpp"
+#include "entities/db_user.hpp"
 // -----------------------------------------------------------------------------
 
 
@@ -54,19 +57,39 @@ class DBManager {
   bool IsConnected() const;
 
   bool CreateDatabase();
+  bool AddDefaultData();
   bool UpdateDatabase();
 
-  std::string NormalizeUsername(const std::string& username);
-  bool VerifyUsername(const std::string& username, std::string &rules);
-  bool AuthUser(const std::string& username, const std::string& password, User& user);
+  bool AddUser(const User& user);
+  bool UpdateUser(const User& user);
+  bool GetUser(const std::string& username, DbUser& user);
+  bool DeactivateUser(const std::string& username);
+  bool GetAllUsers(std::vector<DbUser> users);
+  bool AuthUser(const std::string& username, const std::string& password, DbUser& user);
+
+  bool AddUserRole(const std::string& username, const std::string& role_name);
+
+  bool GetUserPermissions(const std::string& username, std::set<std::string>& permissions);
+
+  bool AddGroup(const Group& group);
+  bool AddGroupUser(const std::string& group_name, const std::string& user_name);
+  bool AddGroupRole(const std::string& group_name, const std::string& role_name);
+
+  bool AddRole(const Role& role);
+  bool AddRolePermissions(const std::string& role_name, const std::set<std::string_view> &permissions);
+
+  bool AddAllPermissions();
 
  private:
   int GetDbVersion();
   bool UpdateDatabaseV2();
   std::string StandalizeQueryCreateTable(const std::string& query, DBType db_type) const;
-  std::string HashPassword(const std::string& password);
   std::string ConvertTime(time_t utc_time);
   time_t ConvertTime(std::string str_time);
+
+  std::string NormalizeUsername(const std::string& username);
+  bool VerifyUsername(const std::string& username, std::string &rules);
+  std::string HashPassword(const std::string& password);
 
  private:
   DBType db_type_;
