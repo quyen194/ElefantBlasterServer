@@ -63,13 +63,15 @@ class DBManager {
   bool AddUser(const User& user);
   bool UpdateUser(const User& user);
   bool GetUser(const std::string& username, DbUser& user);
-  bool DeactivateUser(const std::string& username);
-  bool GetAllUsers(std::vector<DbUser> users);
+  bool GetUsers(std::vector<DbUser> users,
+                std::string filter_name = "",
+                bool sorted_by_asc = false,
+                std::uint64_t last_id = 0,
+                std::uint64_t max_count = 0);
   bool AuthUser(const std::string& username, const std::string& password, DbUser& user);
+  bool GetUserPermissions(const std::string& username, std::set<std::string>& permissions);
 
   bool AddUserRole(const std::string& username, const std::string& role_name);
-
-  bool GetUserPermissions(const std::string& username, std::set<std::string>& permissions);
 
   bool AddGroup(const Group& group);
   bool AddGroupUser(const std::string& group_name, const std::string& user_name);

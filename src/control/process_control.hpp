@@ -44,7 +44,7 @@ class ProcessControl : public IpcServer {
   ProcessControl(int argc, char *argv[]);
   ~ProcessControl();
 
-  void Create();
+  bool Create();
   void Repawn();
 
  private:

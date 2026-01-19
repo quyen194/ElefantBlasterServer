@@ -95,7 +95,10 @@ int main(int argc, char *argv[]) {
   logger = SettingsManager::Instance()->GetLogger("app", "entrypoint", true);
 
   ProcessControl process_control(argc, argv);
-  process_control.Create();
+  if (!process_control.Create()) {
+    logger->error("Failed to create ProcessControl. Exiting.");
+    return 1;
+  }
 
   if (!is_restart_mode) {
     logger->info("Elefant Blaster Server App started successfully");

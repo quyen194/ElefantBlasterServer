@@ -401,14 +401,26 @@ void AdminServer::OnLoginRequest(connection_hdl hdl,
   bool authed = db_manager_->AuthUser(req.username(), req.password(), obj->user);
 
   protocol::ServerMessage msg;
-  auto res = msg.mutable_login_response();
-  if (authed && obj->user.type == UserType::kAdmin) {
-    res->set_result(1);
+  if (authed && obj->user.is_actived && obj->user.type == UserType::kAdmin) {
+    if (db_manager_->GetUserPermissions(obj->user.username,
+                                        obj->permissions)) {
+      auto res = msg.mutable_login_success_response();
+      for (auto permission : obj->permissions) {
+        res->add_permissions(permission);
+      }
+    }
+    else {
+      auto res = msg.mutable_login_failure_response();
+      res->set_reason("Internal Permission Error");
+    }
   }
   else {
-    res->set_result(0);
+    auto res = msg.mutable_login_failure_response();
     if (!authed) {
       res->set_reason("Invalid Credentials");
+    }
+    else if (!obj->user.is_actived) {
+      res->set_reason("Inactived User");
     }
     else if (obj->user.type != UserType::kAdmin) {
       res->set_reason("Insufficient privileges");

@@ -20,6 +20,7 @@
 
 // -----------------------------------------------------------------------------
 #include <cstdint>
+#include <set>
 #include <string>
 
 #include "entities/db_user.hpp"
@@ -37,6 +38,7 @@ struct AdminClientInfo {
   connection_hdl hdl;
 
   DbUser user;
+  std::set<std::string> permissions;
 };
 // -----------------------------------------------------------------------------
 

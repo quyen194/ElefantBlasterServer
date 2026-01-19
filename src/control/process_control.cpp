@@ -51,7 +51,7 @@ ProcessControl::~ProcessControl() {
 }
 // -----------------------------------------------------------------------------
 
-void ProcessControl::Create() {
+bool ProcessControl::Create() {
   settings_->SetCurrentConfig(SettingsManager::kSettingApp);
 
   // Thread pool settings from app config (section thread_pool)
@@ -68,16 +68,24 @@ void ProcessControl::Create() {
   IpcServer::SetIpcType(IpcType::kMPSC);
   IpcServer::Create(ipc_buffer_size, ipc_block_count);
 
-  logger_->info("IPC server initialized successfully");
+  logger_->info("ProcessControl: IPC server initialized successfully");
 
-  db_manager_.LoadConfig();
-  db_manager_.CreateDatabase();
+  if (!db_manager_.LoadConfig()) {
+    return false;
+  }
+  if (!db_manager_.CreateDatabase()) {
+    return false;
+  }
 
   db_manager_.ConnectAsUser();
 
   admin_server_.IpcClient::SetNameEx(IpcServer::GetName());
   admin_server_.IpcClient::Connect();
-  admin_server_.Start();
+  if (!admin_server_.Start()) {
+    return false;
+  }
+
+  return true;
 }
 // -----------------------------------------------------------------------------
 

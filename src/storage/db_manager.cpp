@@ -69,9 +69,17 @@ bool DBManager::LoadConfig() {
     logger_->info("LoadConfig: Using PostgreSQL database with connection string '{}'", running_connection_string_);
     return !initial_connection_string_.empty() && !running_connection_string_.empty();
   }
+  else {
+    logger_->error("LoadConfig: Unsupported database type '{}'", str_type);
+    return false;
+  }
 
-  logger_->error("LoadConfig: Unsupported database type '{}'", str_type);
-  return false;
+  if (initial_connection_string_.empty() || running_connection_string_.empty()) {
+    logger_->error("LoadConfig: Empty database connection string");
+    return false;
+  }
+
+  return true;
 }
 // -----------------------------------------------------------------------------
 
@@ -147,19 +155,21 @@ bool DBManager::CreateDatabase() {
     return true;
   }
 
+  db_->Begin();
+
   // create users table
   query = R"(
       CREATE TABLE IF NOT EXISTS users (
           id            ID_TYPE_PLACEHOLDER,
           type          INTEGER NOT NULL DEFAULT 2,     -- 1=admin, 2=player
           username      TEXT UNIQUE NOT NULL,
-          password_hash TEXT NOT NULL,
+          password      TEXT NOT NULL,
           display_name  TEXT NOT NULL,
           api_token     TEXT NOT NULL,
           is_banned     INTEGER DEFAULT 0,              -- BOOLEAN emulation
           ban_reason    TEXT,
           banned_until  TEXT,                           -- ISO 8601 or NULL
-          actived       INTEGER DEFAULT 1,              -- BOOLEAN emulation
+          is_actived    INTEGER DEFAULT 1,              -- BOOLEAN emulation
           created_at    TEXT DEFAULT (datetime('now'))  -- ISO 8601
       );
   )";
@@ -178,7 +188,7 @@ bool DBManager::CreateDatabase() {
           name          TEXT UNIQUE NOT NULL,           -- example: "Admins", "Moderators", "Players", "VIP"
           display_name  TEXT NOT NULL,
           description   TEXT,
-          actived       INTEGER DEFAULT 1,              -- BOOLEAN emulation
+          is_actived    INTEGER DEFAULT 1,              -- BOOLEAN emulation
           created_at    TEXT DEFAULT (datetime('now'))  -- ISO 8601
       );
   )";
@@ -197,7 +207,7 @@ bool DBManager::CreateDatabase() {
           name          TEXT UNIQUE NOT NULL,
           display_name  TEXT NOT NULL,
           description   TEXT,
-          actived       INTEGER DEFAULT 1,              -- BOOLEAN emulation
+          is_actived    INTEGER DEFAULT 1,              -- BOOLEAN emulation
           created_at    TEXT DEFAULT (datetime('now'))  -- ISO 8601
       );
   )";
@@ -266,7 +276,7 @@ bool DBManager::CreateDatabase() {
       CREATE TABLE IF NOT EXISTS group_roles (
           group_id  INTEGER REFERENCES groups(id),
           role_id   INTEGER REFERENCES roles(id),
-          PRIMARY KEY (user_id, role_id)
+          PRIMARY KEY (group_id, role_id)
       );
   )";
   if (!db_->Execute(query)) {
@@ -333,6 +343,8 @@ bool DBManager::CreateDatabase() {
     return false;
   }
 
+  db_->Commit();
+
   logger_->info("CreateDatabase: Database created successfully");
 
   Disconnect();
@@ -356,7 +368,7 @@ bool DBManager::AddDefaultData() {
   Role role;
   role.is_system = true;
 
-  role.name = system::role::super_admin;
+  role.name = game_system::role::super_admin;
   role.display_name = "Super Admin";
   role.desc = "Super Admin Controls Everything";
   if (!AddRole(role)) {
@@ -376,21 +388,21 @@ bool DBManager::AddDefaultData() {
     return false;
   }
 
-  role.name = system::role::server_admin;
+  role.name = game_system::role::server_admin;
   role.display_name = "Server Admin";
   role.desc = "Server Manager";
   if (!AddRole(role)) {
     return false;
   }
 
-  role.name = system::role::game_admin;
+  role.name = game_system::role::game_admin;
   role.display_name = "Game Admin";
   role.desc = "Game Master";
   if (!AddRole(role)) {
     return false;
   }
 
-  role.name = system::role::player;
+  role.name = game_system::role::player;
   role.display_name = "Player";
   role.desc = "Join Match, Replay Match";
   if (!AddRole(role)) {
@@ -402,7 +414,7 @@ bool DBManager::AddDefaultData() {
     return false;
   }
 
-  role.name = system::role::guest;
+  role.name = game_system::role::guest;
   role.display_name = "Guest";
   role.desc = "View Match, Replay Match";
   if (!AddRole(role)) {
@@ -414,7 +426,7 @@ bool DBManager::AddDefaultData() {
     return false;
   }
 
-  role.name = system::role::match_owner;
+  role.name = game_system::role::match_owner;
   role.display_name = "Match Owner";
   role.desc = "View Match, Replay Match";
   if (!AddRole(role)) {
@@ -435,47 +447,47 @@ bool DBManager::AddDefaultData() {
   Group group;
   group.is_system = true;
 
-  group.name = system::group::server_admins;
+  group.name = game_system::group::server_admins;
   group.display_name = "Server Admins";
   group.desc = "Server Managers";
   if (!AddGroup(group)) {
     return false;
   }
-  if (!AddGroupRole(std::string(system::group::server_admins),
-                        std::string(system::role::server_admin))) {
+  if (!AddGroupRole(std::string(game_system::group::server_admins),
+                    std::string(game_system::role::server_admin))) {
     return false;
   }
 
-  group.name = system::group::game_admins;
+  group.name = game_system::group::game_admins;
   group.display_name = "Game Admins";
   group.desc = "Game Masters";
   if (!AddGroup(group)) {
     return false;
   }
-  if (!AddGroupRole(std::string(system::group::game_admins),
-                    std::string(system::role::game_admin))) {
+  if (!AddGroupRole(std::string(game_system::group::game_admins),
+                    std::string(game_system::role::game_admin))) {
     return false;
   }
 
-  group.name = system::group::players;
+  group.name = game_system::group::players;
   group.display_name = "Players";
   group.desc = "Normal Players";
   if (!AddGroup(group)) {
     return false;
   }
-  if (!AddGroupRole(std::string(system::group::players),
-                    std::string(system::role::player))) {
+  if (!AddGroupRole(std::string(game_system::group::players),
+                    std::string(game_system::role::player))) {
     return false;
   }
 
-  group.name = system::group::guests;
+  group.name = game_system::group::guests;
   group.display_name = "Guest";
   group.desc = "Anonymous Guest";
   if (!AddGroup(group)) {
     return false;
   }
-  if (!AddGroupRole(std::string(system::group::guests),
-                    std::string(system::role::guest))) {
+  if (!AddGroupRole(std::string(game_system::group::guests),
+                    std::string(game_system::role::guest))) {
     return false;
   }
 
@@ -484,7 +496,6 @@ bool DBManager::AddDefaultData() {
       UserType::kAdmin,  // type
       "admin",           // username
       "quyen194",        // password
-      "",                // password_hash
       "Administrator",   // display_name
       "N/A",             // api_token
   };
@@ -544,7 +555,7 @@ int DBManager::GetDbVersion() {
     current_version = rs->GetInt(0);
   }
   else {
-    logger_->error("UpdateDatabase: Failed to get current database version: {}", db_->GetLastError());
+    logger_->error("UpdateDatabase: Failed to get current database version: {} (NORMAL FOR DB INIT)", db_->GetLastError());
   }
 
   return current_version;
@@ -715,8 +726,10 @@ std::string DBManager::HashPassword(const std::string& password) {
 // -----------------------------------------------------------------------------
 
 bool DBManager::AddUser(const User& user) {
+  std::string normalized_username = NormalizeUsername(user.username);
+
   std::string query = R"(
-      INSERT INTO users(type, username, password_hash, display_name, api_token)
+      INSERT INTO users(type, username, password, display_name, api_token)
       VALUES(?, ?, ?, ?, ?)
   )";
   auto stmt = db_->Prepare(query);
@@ -727,19 +740,19 @@ bool DBManager::AddUser(const User& user) {
 
   int i = 1;
   stmt->BindInt(i++, user.type);
-  stmt->BindString(i++, user.username);
+  stmt->BindString(i++, normalized_username);
   stmt->BindString(i++, HashPassword(user.password));
   stmt->BindString(i++, user.display_name);
   stmt->BindString(i++, user.api_token);
 
   if (!stmt->Execute()) {
     logger_->error("AddUser: Failed to add user({}): {}",
-                   user.username,
+                   normalized_username,
                    stmt->GetLastError());
     return false;
   }
 
-  logger_->info("AddUser: Add user({}) successfully", user.username);
+  logger_->info("AddUser: Add user({}) successfully", normalized_username);
 
   return true;
 }
@@ -749,10 +762,14 @@ bool DBManager::UpdateUser(const User& user) {
   std::string query = R"(
       UPDATE users
       SET
-        type = ?,
-        password_hash = ?,
-        display_name = ?,
-        api_token = ?
+          type = ?,
+          password = ?,
+          display_name = ?,
+          api_token = ?,
+          is_banned = ?,
+          ban_reason = ?,
+          banned_until = ?,
+          is_actived = ?
       WHERE username = ?
   )";
   auto stmt = db_->Prepare(query);
@@ -766,6 +783,10 @@ bool DBManager::UpdateUser(const User& user) {
   stmt->BindString(i++, HashPassword(user.password));
   stmt->BindString(i++, user.display_name);
   stmt->BindString(i++, user.api_token);
+  stmt->BindInt(i++, user.is_banned ? 1 : 0);
+  stmt->BindString(i++, user.ban_reason);
+  stmt->BindString(i++, ConvertTime(user.banned_until));
+  stmt->BindInt(i++, user.is_actived ? 1 : 0);
   stmt->BindString(i++, user.username);
 
   if (!stmt->Execute()) {
@@ -782,14 +803,171 @@ bool DBManager::UpdateUser(const User& user) {
 // -----------------------------------------------------------------------------
 
 bool DBManager::GetUser(const std::string& username, DbUser& user) {
-  return false;
+  int i = 0;
+  std::string normalized_username = NormalizeUsername(username);
+
+  std::string query = R"(
+      SELECT
+          id,
+          type,
+          display_name,
+          api_token,
+          is_banned,
+          ban_reason,
+          banned_until,
+          is_actived
+      FROM users
+      WHERE username = ?
+  )";
+
+  auto stmt = db_->Prepare(query);
+  if (!stmt) {
+    logger_->error("GetUser: Failed to prepare stmt: {}", db_->GetLastError());
+    return false;
+  }
+
+  i = 1;
+  stmt->BindString(i++, normalized_username);
+
+  auto result_set = stmt->Query();
+
+  if (!result_set) {
+    logger_->error("GetUser: Failed to execute stmt: {}",
+                   stmt->GetLastError());
+    return false;
+  }
+
+  if (!result_set->Next()) {
+    logger_->error("GetUser: No user found matching the provided credentials. Username: {}",
+                   username);
+    return false;
+  }
+
+  i = 0;
+  user.id = result_set->GetInt64(i++);
+  user.type = static_cast<UserType>(result_set->GetInt(i++));
+  user.display_name = result_set->GetString(i++);
+  user.api_token = result_set->GetString(i++);
+  user.is_banned = !!result_set->GetInt(i++);
+  user.ban_reason = result_set->GetString(i++);
+  user.banned_until = ConvertTime(result_set->GetString(i++));
+  user.is_actived = !!result_set->GetInt(i++);
+  user.created_at = 0;
+
+  return true;
 }
 // -----------------------------------------------------------------------------
 
-bool DBManager::DeactivateUser(const std::string& username) { return false; }
-// -----------------------------------------------------------------------------
+bool DBManager::GetUsers(std::vector<DbUser> users,
+                         std::string filter_name,
+                         bool sorted_by_asc,
+                         std::uint64_t last_id,
+                         std::uint64_t max_count) {
+  int i = 0;
 
-bool DBManager::GetAllUsers(std::vector<DbUser> users) { return false; }
+  std::string query = R"(
+      SELECT
+          id,
+          type,
+          username,
+          display_name,
+          api_token,
+          is_banned,
+          ban_reason,
+          banned_until,
+          is_actived
+      FROM users
+  )";
+
+  // apply filter
+  bool filter_applied = false;
+  if (!filter_name.empty()) {
+    if (db_type_ == DBType::PostgreSQL) {
+      query += R"(
+          WHERE (   username     ILIKE '%' || ? || '%'
+                 OR display_name ILIKE '%' || ? || '%')
+      )";
+      filter_applied = true;
+    }
+    else if (db_type_ == DBType::SQLite) {
+      query += R"(
+          WHERE (   username     LIKE '%' || ? || '%' COLLATE NOCASE
+                 OR display_name LIKE '%' || ? || '%' COLLATE NOCASE)
+      )";
+      filter_applied = true;
+    }
+  }
+
+  if (last_id) {
+    query += !filter_applied ? R"(WHERE)" : R"(AND)";
+    query += R"( id)";
+    query += sorted_by_asc ? R"( > )" : R"( < )";
+    query += R"(?)";
+  }
+
+  // apply sort
+  if (sorted_by_asc) {
+    query += R"(
+        ORDER BY id ASC
+    )";
+  }
+  else {
+    query += R"(
+        ORDER BY id DESC
+    )";
+  }
+
+  // apply limit
+  if (max_count) {
+    query += R"(
+        LIMIT ?
+    )";
+  }
+
+  auto stmt = db_->Prepare(query);
+  if (!stmt) {
+    logger_->error("GetUser: Failed to prepare stmt: {}", db_->GetLastError());
+    return false;
+  }
+
+  i = 1;
+  if (!filter_name.empty()) {
+    stmt->BindString(i++, filter_name);
+    stmt->BindString(i++, filter_name);
+  }
+  if (last_id) {
+    stmt->BindInt64(i++, last_id);
+  }
+  if (max_count) {
+    stmt->BindInt64(i++, max_count);
+  }
+
+  auto result_set = stmt->Query();
+  if (!result_set) {
+    logger_->error("GetUser: Failed to execute stmt: {}",
+                   stmt->GetLastError());
+    return false;
+  }
+
+  while (result_set->Next()) {
+    DbUser user = {};
+    i = 0;
+    user.id = result_set->GetInt64(i++);
+    user.type = static_cast<UserType>(result_set->GetInt(i++));
+    user.username = result_set->GetString(i++);
+    user.display_name = result_set->GetString(i++);
+    user.api_token = result_set->GetString(i++);
+    user.is_banned = !!result_set->GetInt(i++);
+    user.ban_reason = result_set->GetString(i++);
+    user.banned_until = ConvertTime(result_set->GetString(i++));
+    user.is_actived = !!result_set->GetInt(i++);
+    user.created_at = 0;
+
+    users.push_back(user);
+  }
+
+  return true;
+}
 // -----------------------------------------------------------------------------
 
 bool DBManager::AuthUser(const std::string& username,
@@ -800,10 +978,18 @@ bool DBManager::AuthUser(const std::string& username,
   std::string hash_password = HashPassword(password);
 
   std::string query = R"(
-      SELECT id, type, display_name, api_token, is_banned, ban_reason, banned_until
+      SELECT
+          id,
+          type,
+          display_name,
+          api_token,
+          is_banned,
+          ban_reason,
+          banned_until,
+          is_actived
       FROM users
       WHERE username = ?
-        AND password_hash = ?
+        AND password = ?
   )";
 
   auto stmt = db_->Prepare(query);
@@ -834,12 +1020,72 @@ bool DBManager::AuthUser(const std::string& username,
   i = 0;
   user.id = result_set->GetInt64(i++);
   user.type = static_cast<UserType>(result_set->GetInt(i++));
+  user.username = normalized_username;
   user.display_name = result_set->GetString(i++);
   user.api_token = result_set->GetString(i++);
   user.is_banned = !!result_set->GetInt(i++);
   user.ban_reason = result_set->GetString(i++);
   user.banned_until = ConvertTime(result_set->GetString(i++));
+  user.is_actived = !!result_set->GetInt(i++);
   user.created_at = 0;
+
+  return true;
+}
+// -----------------------------------------------------------------------------
+
+bool DBManager::GetUserPermissions(const std::string& username,
+                                   std::set<std::string>& permissions) {
+  int i = 0;
+  std::string normalized_username = NormalizeUsername(username);
+
+  std::string query = R"(
+      SELECT DISTINCT name
+      FROM permissions
+      WHERE id IN (
+          -- via group roles
+          SELECT role_permissions.permission_id
+          FROM role_permissions
+          JOIN roles ON roles.id = role_permissions.role_id
+          JOIN group_roles ON group_roles.role_id = roles.id
+          JOIN group_users ON group_users.group_id = group_roles.group_id
+          JOIN users ON users.id = group_users.user_id
+          WHERE users.username = ?
+
+          UNION
+
+          -- directly from user roles
+          SELECT role_permissions.permission_id
+          FROM role_permissions
+          JOIN roles ON roles.id = role_permissions.role_id
+          JOIN user_roles ON user_roles.role_id = roles.id
+          JOIN users ON users.id = user_roles.user_id
+          WHERE users.username = ?
+      )
+  )";
+  auto stmt = db_->Prepare(query);
+  if (!stmt) {
+    logger_->error("GetUserPermissions: Failed to prepare stmt: {}",
+                   db_->GetLastError());
+    return false;
+  }
+
+  i = 1;
+  stmt->BindString(i++, normalized_username);
+  stmt->BindString(i++, normalized_username);
+
+  auto result_set = stmt->Query();
+  if (!result_set) {
+    logger_->error("GetUserPermissions: Failed to execute stmt: {}",
+                   stmt->GetLastError());
+    return false;
+  }
+
+  while (result_set->Next()) {
+    i = 0;
+    std::string permission = result_set->GetString(i++);
+
+    permissions.insert(permission);
+  }
 
   return true;
 }
@@ -861,8 +1107,7 @@ bool DBManager::AddUserRole(const std::string& username,
       INSERT INTO user_roles (user_id, role_id)
       SELECT tb_users.user_id, tb_roles.role_id
       FROM tb_users
-      CROSS JOIN tb_roles
-      ON CONFLICT (user_id, role_id) DO NOTHING;
+      CROSS JOIN tb_roles;
   )";
   auto stmt = db_->Prepare(query);
   if (!stmt) {
@@ -894,7 +1139,7 @@ bool DBManager::AddUserRole(const std::string& username,
 bool DBManager::AddGroup(const Group& group) {
   std::string query = R"(
       INSERT INTO groups (is_system, name, display_name, description)
-      VALUES (?, ?, ?)
+      VALUES (?, ?, ?, ?)
   )";
   auto stmt = db_->Prepare(query);
   if (!stmt) {
@@ -938,8 +1183,7 @@ bool DBManager::AddGroupUser(const std::string& group_name,
       INSERT INTO group_users (group_id, user_id)
       SELECT tb_groups.group_id, tb_users.user_id
       FROM tb_groups
-      CROSS JOIN tb_users
-      ON CONFLICT (group_id, user_id) DO NOTHING;
+      CROSS JOIN tb_users;
   )";
   auto stmt = db_->Prepare(query);
   if (!stmt) {
@@ -984,8 +1228,7 @@ bool DBManager::AddGroupRole(const std::string& group_name,
       INSERT INTO group_roles (group_id, role_id)
       SELECT tb_groups.group_id, tb_roles.role_id
       FROM tb_groups
-      CROSS JOIN tb_roles
-      ON CONFLICT (group_id, role_id) DO NOTHING;
+      CROSS JOIN tb_roles;
   )";
   auto stmt = db_->Prepare(query);
   if (!stmt) {
@@ -1017,7 +1260,7 @@ bool DBManager::AddGroupRole(const std::string& group_name,
 bool DBManager::AddRole(const Role& role) {
   std::string query = R"(
       INSERT INTO roles (is_system, name, display_name, description)
-      VALUES (?, ?, ?)
+      VALUES (?, ?, ?, ?)
   )";
   auto stmt = db_->Prepare(query);
   if (!stmt) {
@@ -1063,8 +1306,7 @@ bool DBManager::AddRolePermissions(
       INSERT INTO role_permissions (role_id, permission_id)
       SELECT tb_roles.role_id, tb_permissions.permission_id
       FROM tb_roles
-      CROSS JOIN tb_permissions
-      ON CONFLICT (role_id, permission_id) DO NOTHING;
+      CROSS JOIN tb_permissions;
   )";
   auto stmt = db_->Prepare(query);
   if (!stmt) {
@@ -1100,8 +1342,8 @@ bool DBManager::AddRolePermissions(
 
 bool DBManager::AddAllPermissions() {
   std::string query = R"(
-      INSERT INTO permissions (name, description)
-      VALUES (?, ?)
+      INSERT INTO permissions (risk_level, name, description)
+      VALUES (?, ?, ?)
   )";
   auto stmt = db_->Prepare(query);
   if (!stmt) {
@@ -1125,8 +1367,7 @@ bool DBManager::AddAllPermissions() {
     }
   }
 
-  logger_->info(
-      "AddAllPermissions: Add all permission successfully");
+  logger_->info("AddAllPermissions: Add all permission successfully");
 
   return true;
 }
