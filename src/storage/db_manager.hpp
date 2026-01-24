@@ -27,6 +27,8 @@
 #include <aries_base/definitions/macro.hpp>
 #include <aries_base/database/db_factory.hpp>
 
+#include <storage/shared/db_definitions.hpp>
+
 #include "common/settings_manager.hpp"
 #include "entities/db_group.hpp"
 #include "entities/db_role.hpp"
@@ -62,10 +64,11 @@ class DBManager {
 
   bool AddUser(const User& user);
   bool UpdateUser(const User& user);
+  bool UpdateUserLastOnlineTime(User& user);
   bool GetUser(const std::string& username, DbUser& user);
-  bool GetUsers(std::vector<DbUser> users,
+  bool GetUsers(std::vector<DbUser> &users,
                 std::string filter_name = "",
-                bool sorted_by_asc = false,
+                SortBy sort_type = SortBy::kNone,
                 std::uint64_t last_id = 0,
                 std::uint64_t max_count = 0);
   bool AuthUser(const std::string& username, const std::string& password, DbUser& user);

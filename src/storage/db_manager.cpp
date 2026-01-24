@@ -18,6 +18,7 @@
 
 #include <aries_base/encryption/hash/hash_factory.hpp>
 #include <aries_base/utils/scope_cleanup.hpp>
+#include <aries_base/utils/times.hpp>
 
 #include <entities/permission_list.hpp>
 #include <entities/system_groups.hpp>
@@ -160,17 +161,18 @@ bool DBManager::CreateDatabase() {
   // create users table
   query = R"(
       CREATE TABLE IF NOT EXISTS users (
-          id            ID_TYPE_PLACEHOLDER,
-          type          INTEGER NOT NULL DEFAULT 2,     -- 1=admin, 2=player
-          username      TEXT UNIQUE NOT NULL,
-          password      TEXT NOT NULL,
-          display_name  TEXT NOT NULL,
-          api_token     TEXT NOT NULL,
-          is_banned     INTEGER DEFAULT 0,              -- BOOLEAN emulation
-          ban_reason    TEXT,
-          banned_until  TEXT,                           -- ISO 8601 or NULL
-          is_actived    INTEGER DEFAULT 1,              -- BOOLEAN emulation
-          created_at    TEXT DEFAULT (datetime('now'))  -- ISO 8601
+          id              ID_TYPE_PLACEHOLDER,
+          type            INTEGER NOT NULL DEFAULT 2,     -- 1=admin, 2=player
+          username        TEXT UNIQUE NOT NULL,
+          password        TEXT NOT NULL,
+          display_name    TEXT NOT NULL,
+          api_token       TEXT DEFAULT NULL,
+          last_online_at  TEXT DEFAULT NULL,
+          is_banned       INTEGER DEFAULT 0,              -- BOOLEAN emulation
+          ban_reason      TEXT,
+          banned_until    TEXT,                           -- ISO 8601 or NULL
+          is_actived      INTEGER DEFAULT 1,              -- BOOLEAN emulation
+          created_at      TEXT DEFAULT (datetime('now'))  -- ISO 8601
       );
   )";
   query = StandalizeQueryCreateTable(query, db_type_);
@@ -493,11 +495,11 @@ bool DBManager::AddDefaultData() {
 
   // add system users
   User admin_user = {
-      UserType::kAdmin,  // type
-      "admin",           // username
-      "quyen194",        // password
-      "Administrator",   // display_name
-      "N/A",             // api_token
+      0,                // id
+      UserType::kAdmin, // type
+      "admin",          // username
+      "quyen194",       // password
+      "Administrator",  // display_name
   };
 
   result = AddUser(admin_user);
@@ -514,6 +516,11 @@ bool DBManager::AddDefaultData() {
       "AddDefaultData: Create Administrator user with username: {} / password: {}",
       admin_user.username,
       admin_user.password);
+
+  if (!AddUserRole(admin_user.username,
+                   std::string(game_system::role::super_admin))) {
+    return false;
+  }
 
   logger_->info("AddDefaultData: End successfully");
 
@@ -802,6 +809,41 @@ bool DBManager::UpdateUser(const User& user) {
 }
 // -----------------------------------------------------------------------------
 
+bool DBManager::UpdateUserLastOnlineTime(User& user) {
+  time_t now = utils::EpocTime();
+  if (user.last_online_at && user.last_online_at > now - 60) {
+    // no need to update
+    return true;
+  }
+
+  std::string query = R"(
+      UPDATE users
+      SET last_online_at = ?
+      WHERE id = ?
+  )";
+  auto stmt = db_->Prepare(query);
+  if (!stmt) {
+    logger_->error("AddUser: Failed to prepare stmt: {}", db_->GetLastError());
+    return false;
+  }
+
+  int i = 1;
+  stmt->BindString(i++, ConvertTime(now));
+  stmt->BindInt64(i++, user.id);
+
+  if (!stmt->Execute()) {
+    logger_->error("UpdateUserLastOnlineTime: Failed to update user({}): {}",
+                   user.username,
+                   stmt->GetLastError());
+    return false;
+  }
+
+  user.last_online_at = now;
+
+  return true;
+}
+// -----------------------------------------------------------------------------
+
 bool DBManager::GetUser(const std::string& username, DbUser& user) {
   int i = 0;
   std::string normalized_username = NormalizeUsername(username);
@@ -812,6 +854,7 @@ bool DBManager::GetUser(const std::string& username, DbUser& user) {
           type,
           display_name,
           api_token,
+          last_online_at,
           is_banned,
           ban_reason,
           banned_until,
@@ -848,9 +891,14 @@ bool DBManager::GetUser(const std::string& username, DbUser& user) {
   user.type = static_cast<UserType>(result_set->GetInt(i++));
   user.display_name = result_set->GetString(i++);
   user.api_token = result_set->GetString(i++);
+  user.last_online_at =
+      result_set->IsNull(i) ? 0 : ConvertTime(result_set->GetString(i));
+  i++;
   user.is_banned = !!result_set->GetInt(i++);
   user.ban_reason = result_set->GetString(i++);
-  user.banned_until = ConvertTime(result_set->GetString(i++));
+  user.banned_until =
+      result_set->IsNull(i) ? 0 : ConvertTime(result_set->GetString(i));
+  i++;
   user.is_actived = !!result_set->GetInt(i++);
   user.created_at = 0;
 
@@ -858,9 +906,9 @@ bool DBManager::GetUser(const std::string& username, DbUser& user) {
 }
 // -----------------------------------------------------------------------------
 
-bool DBManager::GetUsers(std::vector<DbUser> users,
+bool DBManager::GetUsers(std::vector<DbUser> &users,
                          std::string filter_name,
-                         bool sorted_by_asc,
+                         SortBy sort_type,
                          std::uint64_t last_id,
                          std::uint64_t max_count) {
   int i = 0;
@@ -872,6 +920,7 @@ bool DBManager::GetUsers(std::vector<DbUser> users,
           username,
           display_name,
           api_token,
+          last_online_at,
           is_banned,
           ban_reason,
           banned_until,
@@ -901,17 +950,17 @@ bool DBManager::GetUsers(std::vector<DbUser> users,
   if (last_id) {
     query += !filter_applied ? R"(WHERE)" : R"(AND)";
     query += R"( id)";
-    query += sorted_by_asc ? R"( > )" : R"( < )";
+    query += (sort_type == SortBy::kDesc) ? R"( < )" : R"( > )";
     query += R"(?)";
   }
 
   // apply sort
-  if (sorted_by_asc) {
+  if (sort_type == SortBy::kAsc) {
     query += R"(
         ORDER BY id ASC
     )";
   }
-  else {
+  else if (sort_type == SortBy::kDesc) {
     query += R"(
         ORDER BY id DESC
     )";
@@ -957,9 +1006,14 @@ bool DBManager::GetUsers(std::vector<DbUser> users,
     user.username = result_set->GetString(i++);
     user.display_name = result_set->GetString(i++);
     user.api_token = result_set->GetString(i++);
+    user.last_online_at =
+        result_set->IsNull(i) ? 0 : ConvertTime(result_set->GetString(i));
+    i++;
     user.is_banned = !!result_set->GetInt(i++);
     user.ban_reason = result_set->GetString(i++);
-    user.banned_until = ConvertTime(result_set->GetString(i++));
+    user.banned_until =
+        result_set->IsNull(i) ? 0 : ConvertTime(result_set->GetString(i));
+    i++;
     user.is_actived = !!result_set->GetInt(i++);
     user.created_at = 0;
 
@@ -1060,7 +1114,7 @@ bool DBManager::GetUserPermissions(const std::string& username,
           JOIN user_roles ON user_roles.role_id = roles.id
           JOIN users ON users.id = user_roles.user_id
           WHERE users.username = ?
-      )
+      );
   )";
   auto stmt = db_->Prepare(query);
   if (!stmt) {

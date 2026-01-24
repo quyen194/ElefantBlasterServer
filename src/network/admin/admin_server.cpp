@@ -327,6 +327,15 @@ void AdminServer::OnError(connection_hdl hdl) {
 }
 // -----------------------------------------------------------------------------
 
+void AdminServer::UpdateLastOnlineStatus(connection_hdl hdl) {
+  auto obj = GetConnectionInfo(hdl);
+
+  if (obj->user.id) {
+    db_manager_->UpdateUserLastOnlineTime(obj->user);
+  }
+}
+// -----------------------------------------------------------------------------
+
 void AdminServer::OnMessage(connection_hdl hdl, message_ptr message) {
   if (message->get_opcode() != websocketpp::frame::opcode::binary)
     return;
@@ -357,7 +366,12 @@ void AdminServer::OnMessage(connection_hdl hdl, message_ptr message) {
     case protocol::ClientMessage::kDisconnectAllGameClientsRequest: {
       OnDisconnectAllGameClients(hdl);
     } break;
+    case protocol::ClientMessage::kUsersListRequest: {
+      OnUsersListRequest(hdl, msg.users_list_request());
+    } break;
   }
+
+  UpdateLastOnlineStatus(hdl);
 }
 // -----------------------------------------------------------------------------
 
@@ -495,6 +509,43 @@ void AdminServer::OnDisconnectAllGameClients(connection_hdl hdl) {
   protocol::ServerMessage msg;
   auto res = msg.mutable_disconnect_all_game_clients_response();
   res->set_result(1);
+  Send(hdl, msg);
+}
+// -----------------------------------------------------------------------------
+
+void AdminServer::OnUsersListRequest(
+    connection_hdl hdl, const users_management::UsersListRequest& req) {
+  auto obj = GetConnectionInfo(hdl);
+  logger_->info("AdminServer: Client({}) request users list", obj->index);
+
+  protocol::ServerMessage msg;
+
+  std::vector<DbUser> db_users;
+  if (!db_manager_->GetUsers(db_users,
+                             req.filter_name(),
+                             static_cast<SortBy>(req.sort_type()),
+                             req.last_id(),
+                             req.max_count())) {
+    auto res = msg.mutable_users_list_failure_response();
+    res->set_reason("Database Error");
+    Send(hdl, msg);
+    return;
+  }
+
+  auto res = msg.mutable_users_list_success_response();
+  for (auto db_user : db_users) {
+    auto user = res->add_users();
+    user->set_id(db_user.id);
+    user->set_type(db_user.type);
+    user->set_username(db_user.username);
+    user->set_display_name(db_user.display_name);
+    user->set_api_token(db_user.api_token);
+    user->set_last_online_at(db_user.last_online_at);
+    user->set_is_banned(db_user.is_banned);
+    user->set_ban_reason(db_user.ban_reason);
+    user->set_banned_until(db_user.banned_until);
+    user->set_is_actived(db_user.is_actived);
+  }
   Send(hdl, msg);
 }
 // -----------------------------------------------------------------------------

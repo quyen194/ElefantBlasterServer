@@ -33,8 +33,7 @@
 #include <aries_base/process/ipc/mpmc_bounded_queue/ipc_client.hpp>
 #include <aries_base/utils/bytes.hpp>
 
-#include <network/shared/admin_protocols/client_protocol.pb.h>
-#include <network/shared/admin_protocols/server_protocol.pb.h>
+#include <network/shared/admin_protocols/protocol.pb.h>
 
 #include "common/settings_manager.hpp"
 #include "network/admin/admin_client_info.hpp"
@@ -89,11 +88,16 @@ class AdminServer : public IpcClient {
 
  private:
   void OnLoginRequest(connection_hdl hdl, const admin_auth::LoginRequest& req);
+
   void OnShutDownServer(connection_hdl hdl);
   void OnRestartServer(connection_hdl hdl);
   void OnActiveGameServer(connection_hdl hdl);
   void OnDeactiveGameServer(connection_hdl hdl);
   void OnDisconnectAllGameClients(connection_hdl hdl);
+
+  void OnUsersListRequest(connection_hdl hdl, const users_management::UsersListRequest& req);
+
+  void UpdateLastOnlineStatus(connection_hdl hdl);
 
  private:
   std::unique_ptr<websocket_server> server_;
