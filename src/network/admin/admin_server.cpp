@@ -20,7 +20,10 @@
 #include <aries_base/process/thread_pool/thread_pool.hpp>
 #include <aries_base/utils/file_io.hpp>
 
+#include <entities/permission_list.hpp>
+
 #include "common/events.hpp"
+#include "entities/db_permission.hpp"
 #include "network/admin/admin_server.hpp"
 // -----------------------------------------------------------------------------
 
@@ -369,6 +372,9 @@ void AdminServer::OnMessage(connection_hdl hdl, message_ptr message) {
     case protocol::ClientMessage::kUsersListRequest: {
       OnUsersListRequest(hdl, msg.users_list_request());
     } break;
+    case protocol::ClientMessage::kPermissionsListRequest: {
+      OnPermissionsListRequest(hdl);
+    } break;
   }
 
   UpdateLastOnlineStatus(hdl);
@@ -545,6 +551,50 @@ void AdminServer::OnUsersListRequest(
     user->set_ban_reason(db_user.ban_reason);
     user->set_banned_until(db_user.banned_until);
     user->set_is_actived(db_user.is_actived);
+  }
+  Send(hdl, msg);
+}
+// -----------------------------------------------------------------------------
+
+void AdminServer::OnPermissionsListRequest(connection_hdl hdl) {
+  auto obj = GetConnectionInfo(hdl);
+  logger_->info("AdminServer: Client({}) request permissions list", obj->index);
+
+  protocol::ServerMessage msg;
+
+  int max_risk_level = 0;
+
+  if (HasPermission(obj->permissions, permission::self::all) ||
+      HasPermission(obj->permissions, permission::self::view_high_risk)) {
+    max_risk_level = RiskLevel::kHigh;
+  }
+  else if (HasPermission(obj->permissions, permission::self::view_medium_risk)) {
+    max_risk_level = RiskLevel::kMedium;
+  }
+  else if (HasPermission(obj->permissions, permission::self::view_low_risk)) {
+    max_risk_level = RiskLevel::kLow;
+  }
+  else {
+    auto res = msg.mutable_permissions_list_failure_response();
+    res->set_reason("Unauthorized data access");
+    Send(hdl, msg);
+    return;
+  }
+
+  std::vector<DbPermission> db_permissions;
+  if (!db_manager_->GetPermissions(max_risk_level, db_permissions)) {
+    auto res = msg.mutable_permissions_list_failure_response();
+    res->set_reason("Database Error");
+    Send(hdl, msg);
+    return;
+  }
+
+  auto res = msg.mutable_permissions_list_success_response();
+  for (auto db_permission : db_permissions) {
+    auto permission = res->add_permissions();
+    permission->set_risk_level(db_permission.risk);
+    permission->set_name(db_permission.name);
+    permission->set_desc(db_permission.desc);
   }
   Send(hdl, msg);
 }

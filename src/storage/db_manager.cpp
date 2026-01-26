@@ -1423,3 +1423,48 @@ bool DBManager::AddAllPermissions() {
   return true;
 }
 // -----------------------------------------------------------------------------
+
+bool DBManager::GetPermissions(int max_risk_level,
+                               std::vector<DbPermission>& permissions) {
+  int i;
+
+  std::string query = R"(
+      SELECT
+          id,
+          risk_level,
+          name,
+          description
+      FROM permissions
+      WHERE risk_level <= ?
+  )";
+  auto stmt = db_->Prepare(query);
+  if (!stmt) {
+    logger_->error("GetPermissions: Failed to prepare stmt: {}",
+                   db_->GetLastError());
+    return false;
+  }
+
+  i = 1;
+  stmt->BindInt(i++, max_risk_level);
+
+  auto result_set = stmt->Query();
+  if (!result_set) {
+    logger_->error("GetPermissions: Failed to execute stmt: {}",
+                   stmt->GetLastError());
+    return false;
+  }
+
+  while (result_set->Next()) {
+    DbPermission permission = {};
+    i = 0;
+    permission.id = result_set->GetInt64(i++);
+    permission.risk = static_cast<RiskLevel>(result_set->GetInt(i++));
+    permission.name = result_set->GetString(i++);
+    permission.desc = result_set->GetString(i++);
+
+    permissions.push_back(permission);
+  }
+
+  return true;
+}
+// -----------------------------------------------------------------------------

@@ -31,6 +31,7 @@
 
 #include "common/settings_manager.hpp"
 #include "entities/db_group.hpp"
+#include "entities/db_permission.hpp"
 #include "entities/db_role.hpp"
 #include "entities/db_user.hpp"
 // -----------------------------------------------------------------------------
@@ -84,6 +85,7 @@ class DBManager {
   bool AddRolePermissions(const std::string& role_name, const std::set<std::string_view> &permissions);
 
   bool AddAllPermissions();
+  bool GetPermissions(int max_risk_level, std::vector<DbPermission> &permissions);
 
  private:
   int GetDbVersion();
