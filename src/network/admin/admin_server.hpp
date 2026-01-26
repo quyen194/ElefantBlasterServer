@@ -87,6 +87,9 @@ class AdminServer : public IpcClient {
   std::shared_ptr<AdminClientInfo> GetConnectionInfo(connection_hdl hdl);
 
  private:
+  void UpdateLastOnlineStatus(connection_hdl hdl);
+
+ private:
   void OnLoginRequest(connection_hdl hdl, const admin_auth::LoginRequest& req);
 
   void OnShutDownServer(connection_hdl hdl);
@@ -96,8 +99,7 @@ class AdminServer : public IpcClient {
   void OnDisconnectAllGameClients(connection_hdl hdl);
 
   void OnUsersListRequest(connection_hdl hdl, const users_management::UsersListRequest& req);
-
-  void UpdateLastOnlineStatus(connection_hdl hdl);
+  void OnPermissionsListRequest(connection_hdl hdl);
 
  private:
   std::unique_ptr<websocket_server> server_;

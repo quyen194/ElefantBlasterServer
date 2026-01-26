@@ -25,7 +25,6 @@
 #include <entities/system_roles.hpp>
 
 #include "storage/db_manager.hpp"
-#include "db_manager.hpp"
 // -----------------------------------------------------------------------------
 
 
@@ -1045,9 +1044,7 @@ bool DBManager::AuthUser(const std::string& username,
       WHERE username = ?
         AND password = ?
   )";
-
   auto stmt = db_->Prepare(query);
-
   if (!stmt) {
     logger_->error("AuthUser: Failed to prepare stmt: {}", db_->GetLastError());
     return false;
