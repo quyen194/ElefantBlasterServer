@@ -1014,7 +1014,7 @@ bool DBManager::GetUsers(std::vector<DbUser> &users,
         result_set->IsNull(i) ? 0 : ConvertTime(result_set->GetString(i));
     i++;
     user.is_actived = !!result_set->GetInt(i++);
-    user.created_at = 0;
+    user.created_at = ConvertTime(result_set->GetString(i++));
 
     users.push_back(user);
   }

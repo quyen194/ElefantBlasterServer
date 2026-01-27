@@ -526,6 +526,17 @@ void AdminServer::OnUsersListRequest(
 
   protocol::ServerMessage msg;
 
+  if (HasPermission(obj->permissions, permission::user::all) ||
+      HasPermission(obj->permissions, permission::user::view)) {
+    // continue
+  }
+  else {
+    auto res = msg.mutable_roles_list_failure_response();
+    res->set_reason("Unauthorized data access");
+    Send(hdl, msg);
+    return;
+  }
+
   std::vector<DbUser> db_users;
   if (!db_manager_->GetUsers(db_users,
                              req.filter_name(),
