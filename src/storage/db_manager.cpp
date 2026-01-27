@@ -1339,6 +1339,52 @@ bool DBManager::AddRole(const Role& role) {
 }
 // -----------------------------------------------------------------------------
 
+bool DBManager::GetAllRoles(std::vector<DbRole>& roles) {
+  int i;
+
+  std::string query = R"(
+      SELECT
+          id,
+          is_system,
+          name,
+          display_name,
+          description,
+          is_actived,
+          created_at
+      FROM roles
+  )";
+  auto stmt = db_->Prepare(query);
+  if (!stmt) {
+    logger_->error("GetAllRoles: Failed to prepare stmt: {}",
+                   db_->GetLastError());
+    return false;
+  }
+
+  auto result_set = stmt->Query();
+  if (!result_set) {
+    logger_->error("GetAllRoles: Failed to execute stmt: {}",
+                   stmt->GetLastError());
+    return false;
+  }
+
+  while (result_set->Next()) {
+    DbRole role = {};
+    i = 0;
+    role.id = result_set->GetInt64(i++);
+    role.is_system = !!result_set->GetInt(i++);
+    role.name = result_set->GetString(i++);
+    role.display_name = result_set->GetString(i++);
+    role.desc = result_set->GetString(i++);
+    role.is_actived = !!result_set->GetInt(i++);
+    role.created_at = ConvertTime(result_set->GetString(i++));
+
+    roles.push_back(role);
+  }
+
+  return true;
+}
+// -----------------------------------------------------------------------------
+
 bool DBManager::AddRolePermissions(
     const std::string& role_name,
     const std::set<std::string_view>& permissions) {

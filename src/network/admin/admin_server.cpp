@@ -372,6 +372,9 @@ void AdminServer::OnMessage(connection_hdl hdl, message_ptr message) {
     case protocol::ClientMessage::kUsersListRequest: {
       OnUsersListRequest(hdl, msg.users_list_request());
     } break;
+    case protocol::ClientMessage::kRolesListRequest: {
+      OnRolesListRequest(hdl);
+    } break;
     case protocol::ClientMessage::kPermissionsListRequest: {
       OnPermissionsListRequest(hdl);
     } break;
@@ -562,6 +565,45 @@ void AdminServer::OnUsersListRequest(
     user->set_ban_reason(db_user.ban_reason);
     user->set_banned_until(db_user.banned_until);
     user->set_is_actived(db_user.is_actived);
+  }
+  Send(hdl, msg);
+}
+// -----------------------------------------------------------------------------
+
+void AdminServer::OnRolesListRequest(connection_hdl hdl) {
+  auto obj = GetConnectionInfo(hdl);
+  logger_->info("AdminServer: Client({}) request roles list", obj->index);
+
+  protocol::ServerMessage msg;
+
+  if (HasPermission(obj->permissions, permission::role::all) ||
+      HasPermission(obj->permissions, permission::role::view)) {
+    // continue
+  }
+  else {
+    auto res = msg.mutable_roles_list_failure_response();
+    res->set_reason("Unauthorized data access");
+    Send(hdl, msg);
+    return;
+  }
+
+  std::vector<DbRole> db_roles;
+  if (!db_manager_->GetAllRoles(db_roles)) {
+    auto res = msg.mutable_roles_list_failure_response();
+    res->set_reason("Database Error");
+    Send(hdl, msg);
+    return;
+  }
+
+  auto res = msg.mutable_roles_list_success_response();
+  for (auto db_role : db_roles) {
+    auto role = res->add_roles();
+    role->set_id(db_role.id);
+    role->set_is_system(db_role.is_system);
+    role->set_name(db_role.name);
+    role->set_display_name(db_role.display_name);
+    role->set_desc(db_role.desc);
+    role->set_is_actived(db_role.is_actived);
   }
   Send(hdl, msg);
 }

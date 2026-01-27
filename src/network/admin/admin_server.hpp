@@ -99,6 +99,7 @@ class AdminServer : public IpcClient {
   void OnDisconnectAllGameClients(connection_hdl hdl);
 
   void OnUsersListRequest(connection_hdl hdl, const users_management::UsersListRequest& req);
+  void OnRolesListRequest(connection_hdl hdl);
   void OnPermissionsListRequest(connection_hdl hdl);
 
  private:
