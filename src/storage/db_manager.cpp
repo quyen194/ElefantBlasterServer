@@ -1218,6 +1218,52 @@ bool DBManager::AddGroup(const Group& group) {
 }
 // -----------------------------------------------------------------------------
 
+bool DBManager::GetAllGroups(std::vector<DbGroup>& groups) {
+  int i;
+
+  std::string query = R"(
+      SELECT
+          id,
+          is_system,
+          name,
+          display_name,
+          description,
+          is_actived,
+          created_at
+      FROM groups
+  )";
+  auto stmt = db_->Prepare(query);
+  if (!stmt) {
+    logger_->error("GetAllGroups: Failed to prepare stmt: {}",
+                   db_->GetLastError());
+    return false;
+  }
+
+  auto result_set = stmt->Query();
+  if (!result_set) {
+    logger_->error("GetAllGroups: Failed to execute stmt: {}",
+                   stmt->GetLastError());
+    return false;
+  }
+
+  while (result_set->Next()) {
+    DbGroup group = {};
+    i = 0;
+    group.id = result_set->GetInt64(i++);
+    group.is_system = !!result_set->GetInt(i++);
+    group.name = result_set->GetString(i++);
+    group.display_name = result_set->GetString(i++);
+    group.desc = result_set->GetString(i++);
+    group.is_actived = !!result_set->GetInt(i++);
+    group.created_at = ConvertTime(result_set->GetString(i++));
+
+    groups.push_back(group);
+  }
+
+  return true;
+}
+// -----------------------------------------------------------------------------
+
 bool DBManager::AddGroupUser(const std::string& group_name,
                              const std::string& user_name) {
   std::string query = R"(

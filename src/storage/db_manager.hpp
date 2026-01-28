@@ -78,6 +78,7 @@ class DBManager {
   bool AddUserRole(const std::string& username, const std::string& role_name);
 
   bool AddGroup(const Group& group);
+  bool GetAllGroups(std::vector<DbGroup> &groups);
   bool AddGroupUser(const std::string& group_name, const std::string& user_name);
   bool AddGroupRole(const std::string& group_name, const std::string& role_name);
 

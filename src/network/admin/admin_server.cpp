@@ -372,6 +372,9 @@ void AdminServer::OnMessage(connection_hdl hdl, message_ptr message) {
     case protocol::ClientMessage::kUsersListRequest: {
       OnUsersListRequest(hdl, msg.users_list_request());
     } break;
+    case protocol::ClientMessage::kGroupsListRequest: {
+      OnGroupsListRequest(hdl);
+    } break;
     case protocol::ClientMessage::kRolesListRequest: {
       OnRolesListRequest(hdl);
     } break;
@@ -565,6 +568,45 @@ void AdminServer::OnUsersListRequest(
     user->set_ban_reason(db_user.ban_reason);
     user->set_banned_until(db_user.banned_until);
     user->set_is_actived(db_user.is_actived);
+  }
+  Send(hdl, msg);
+}
+// -----------------------------------------------------------------------------
+
+void AdminServer::OnGroupsListRequest(connection_hdl hdl) {
+  auto obj = GetConnectionInfo(hdl);
+  logger_->info("AdminServer: Client({}) request groups list", obj->index);
+
+  protocol::ServerMessage msg;
+
+  if (HasPermission(obj->permissions, permission::usergroup::all) ||
+      HasPermission(obj->permissions, permission::usergroup::view)) {
+    // continue
+  }
+  else {
+    auto res = msg.mutable_groups_list_failure_response();
+    res->set_reason("Unauthorized data access");
+    Send(hdl, msg);
+    return;
+  }
+
+  std::vector<DbGroup> db_groups;
+  if (!db_manager_->GetAllGroups(db_groups)) {
+    auto res = msg.mutable_groups_list_failure_response();
+    res->set_reason("Database Error");
+    Send(hdl, msg);
+    return;
+  }
+
+  auto res = msg.mutable_groups_list_success_response();
+  for (auto db_group : db_groups) {
+    auto group = res->add_groups();
+    group->set_id(db_group.id);
+    group->set_is_system(db_group.is_system);
+    group->set_name(db_group.name);
+    group->set_display_name(db_group.display_name);
+    group->set_desc(db_group.desc);
+    group->set_is_actived(db_group.is_actived);
   }
   Send(hdl, msg);
 }
